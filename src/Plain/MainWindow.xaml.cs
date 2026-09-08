@@ -348,7 +348,7 @@ public partial class MainWindow : Window
 
         ContextHint.Text = _active?.File.Kind switch
         {
-            FileKind.Spreadsheet => "Click a cell and type. A leading = makes a formula.",
+            FileKind.Spreadsheet => "Click a cell and type. A leading = makes a formula. Shift to select a block, then copy or paste.",
             FileKind.Document => "Click any line and type. One column, no page breaks.",
             FileKind.Presentation => "Pick a slide, then edit its text.",
             _ => "",

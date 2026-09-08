@@ -54,6 +54,25 @@ public static class RefsSuite
         foreach (var odd in new[] { "=", "=(((", "='unclosed", "=\"unclosed", "=A", "=!", "=Sheet2!", "=:", "=$", "=A1:", "==A1" })
             s.Check($"awkward input is survived: {odd}", Refs.Parse(odd) is not null);
 
+        // How a block of cells travels on the clipboard.
+        s.Equal("one cell writes as itself", "a", Tabular.Write(new[] { new[] { "a" } }));
+        s.Equal("a row is tab separated", "a\tb", Tabular.Write(new[] { new[] { "a", "b" } }));
+        s.Equal("rows are separated the way Windows does", "a\r\nb", Tabular.Write(new[] { new[] { "a" }, new[] { "b" } }));
+
+        s.Equal("one line reads as one row", 1, Tabular.Read("a\tb").Count);
+        s.Equal("and as two cells", 2, Tabular.Read("a\tb")[0].Count);
+        s.Equal("windows line endings", 2, Tabular.Read("a\r\nb").Count);
+        s.Equal("unix line endings", 2, Tabular.Read("a\nb").Count);
+        s.Equal("old mac line endings", 2, Tabular.Read("a\rb").Count);
+        s.Equal("a trailing newline does not add a row", 2, Tabular.Read("a\r\nb\r\n").Count);
+        s.Equal("two trailing newlines do add an empty one", 3, Tabular.Read("a\nb\n\n").Count);
+        s.Equal("empty text is no rows", 0, Tabular.Read("").Count);
+        s.Equal("an empty cell survives between tabs", "", Tabular.Read("a\t\tb")[0][1]);
+        s.Equal("ragged rows keep their own widths", 3, Tabular.Width(Tabular.Read("a\nb\tc\td")));
+        s.Check("a block survives a round trip",
+                Tabular.Read(Tabular.Write(new[] { new[] { "1", "two" }, new[] { "", "=SUM(A1:A2)" } }))
+                       .SelectMany(r => r).SequenceEqual(new[] { "1", "two", "", "=SUM(A1:A2)" }));
+
         return s;
     }
 }

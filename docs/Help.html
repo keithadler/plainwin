@@ -36,6 +36,7 @@
 
 <h2 id="excel">Spreadsheets</h2>
 <p>Click a cell and type. What you type is read the way Excel reads it: a leading <code>=</code> makes a formula, something that looks like a number is a number, anything else is text. <kbd>Enter</kbd> moves down, <kbd>Tab</kbd> moves right, <kbd>Delete</kbd> empties a cell, <kbd>F2</kbd> edits one without clearing it first. The bar above the grid shows and edits the selected cell.</p>
+<p>Hold <kbd>Shift</kbd> with the arrow keys or with a click to select a block, then copy, cut or paste it. Cells travel as tab separated text, which is what Excel and every other spreadsheet put on the clipboard, so a block copied here pastes into Excel and the other way round. A cell holding a formula copies as its formula. A paste, however many cells it fills, is one step of undo.</p>
 <p>Every sheet in the workbook is on the strip along the bottom. Column widths and number formats come from the file, so the sheet looks the way whoever made it laid it out.</p>
 <p><b>About totals.</b> Plain does not work out what a formula comes to. What it does instead is read which cells each formula depends on. When you change a cell, the formulas that read it lose the value Excel had worked out, and so do the formulas that read those, all the way up the chain and across sheets. Those cells show the formula until Excel or LibreOffice next opens the file and works them out properly. Every other total keeps its number. So changing one label does not empty the sheet, and no number on screen is one that has quietly stopped being true.</p>
 
@@ -55,6 +56,10 @@
 <tr><td><kbd>Ctrl</kbd>+<kbd>Z</kbd></td><td>Undo, as many steps back as you have made</td></tr>
 <tr><td><kbd>Ctrl</kbd>+<kbd>F</kbd></td><td>Find, across every sheet, block or slide in the file</td></tr>
 <tr><td><kbd>Ctrl</kbd>+<kbd>W</kbd></td><td>Close the file you are on</td></tr>
+<tr><td><kbd>Shift</kbd>+arrows or <kbd>Shift</kbd>+click</td><td>Select a block of cells</td></tr>
+<tr><td><kbd>Ctrl</kbd>+<kbd>C</kbd> / <kbd>X</kbd> / <kbd>V</kbd></td><td>Copy, cut or paste a block of cells</td></tr>
+<tr><td><kbd>Ctrl</kbd>+<kbd>A</kbd></td><td>Select everything on the sheet</td></tr>
+<tr><td><kbd>Delete</kbd></td><td>Empty the selected cells</td></tr>
 <tr><td><kbd>F2</kbd></td><td>Edit the selected cell, keeping what is in it</td></tr>
 <tr><td><kbd>Esc</kbd></td><td>Give up on the cell you are editing, or close Find</td></tr>
 </table>

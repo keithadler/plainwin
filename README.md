@@ -30,6 +30,8 @@ Change one cell and only the parts that hold that cell are rewritten. The status
 - **Word**: the text of the body, with headings and tables shown as headings and tables.
 - **PowerPoint**: the text on each slide, picked from a rail of slides.
 
+**Copy and paste** a block of cells with Shift to select and the usual Ctrl+C, X and V. Cells travel as tab separated text, so a block copied out of Plain pastes into Excel and the other way round; a formula copies as its formula. However many cells a paste fills, it is one step of undo.
+
 **Find** with Ctrl+F, across the whole file: every sheet of a workbook, every block of a document, every slide of a deck. A spreadsheet search looks at the formula behind a cell as well as what it shows, so searching for `SUM` finds the cells that total something.
 
 **Save a copy** writes the file, with your changes, under a new name and leaves the original alone. The copy is a whole file, not a patch: everything Plain preserved is in it byte for byte.

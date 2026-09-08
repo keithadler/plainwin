@@ -30,6 +30,7 @@ public sealed class SheetView : Grid
 
     private readonly Dictionary<CellRef, Cell> _cache = new();
     private CellRef _selected = new(1, 1);
+    private CellRef _anchor = new(1, 1);   // the other corner of the selection; equal to _selected for one cell
     private int _firstColumn = 1, _firstRow = 1;
     private int _lastColumn = 40, _lastRow = 200;
 
@@ -38,6 +39,13 @@ public sealed class SheetView : Grid
 
     public Sheet Sheet => _sheet;
     public CellRef Selected => _selected;
+
+    /// <summary>The rectangle currently selected, which is one cell unless it was extended with Shift.</summary>
+    public (int Left, int Top, int Right, int Bottom) Range => (
+        Math.Min(_anchor.Column, _selected.Column), Math.Min(_anchor.Row, _selected.Row),
+        Math.Max(_anchor.Column, _selected.Column), Math.Max(_anchor.Row, _selected.Row));
+
+    public bool HasRange => _anchor != _selected;
 
     public SheetView(Sheet sheet)
     {
@@ -143,9 +151,12 @@ public sealed class SheetView : Grid
 
     // ---------- selection and editing ----------
 
-    public void Select(CellRef reference)
+    public void Select(CellRef reference) => Select(reference, extend: false);
+
+    public void Select(CellRef reference, bool extend)
     {
         _selected = reference;
+        if (!extend) _anchor = reference;
         EnsureVisible(reference);
         Redraw();
         SelectionChanged?.Invoke(reference, Get(reference));
@@ -176,7 +187,7 @@ public sealed class SheetView : Grid
                 foreach (var (row, y) in VisibleRows(_surface.ActualHeight))
                     if (point.Y >= y && point.Y < y + RowHeight)
                     {
-                        Select(new CellRef(column, row));
+                        Select(new CellRef(column, row), extend: Keyboard.Modifiers == ModifierKeys.Shift);
                         if (e.ClickCount >= 2) BeginEdit(null);
                         return;
                     }
@@ -186,18 +197,96 @@ public sealed class SheetView : Grid
     {
         if (_editor.Visibility == Visibility.Visible) return;
         var s = _selected;
+        bool shift = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
+
+        if ((Keyboard.Modifiers & ModifierKeys.Control) != 0)
+        {
+            switch (e.Key)
+            {
+                case Key.C: Copy(); e.Handled = true; return;
+                case Key.X: Copy(); ClearRange(); e.Handled = true; return;
+                case Key.V: Paste(); e.Handled = true; return;
+                case Key.A:
+                    var extent = _sheet.Extent;
+                    _anchor = new CellRef(1, 1);
+                    Select(new CellRef(Math.Max(1, extent.Column), Math.Max(1, extent.Row)), extend: true);
+                    e.Handled = true; return;
+            }
+            return;
+        }
+
         switch (e.Key)
         {
-            case Key.Up: Select(new CellRef(s.Column, Math.Max(1, s.Row - 1))); e.Handled = true; return;
-            case Key.Down or Key.Enter: Select(new CellRef(s.Column, Math.Min(_lastRow, s.Row + 1))); e.Handled = true; return;
-            case Key.Left: Select(new CellRef(Math.Max(1, s.Column - 1), s.Row)); e.Handled = true; return;
-            case Key.Right or Key.Tab: Select(new CellRef(Math.Min(_lastColumn, s.Column + 1), s.Row)); e.Handled = true; return;
-            case Key.Home: Select(new CellRef(1, s.Row)); e.Handled = true; return;
+            case Key.Up: Select(new CellRef(s.Column, Math.Max(1, s.Row - 1)), shift); e.Handled = true; return;
+            case Key.Down or Key.Enter: Select(new CellRef(s.Column, Math.Min(_lastRow, s.Row + 1)), shift); e.Handled = true; return;
+            case Key.Left: Select(new CellRef(Math.Max(1, s.Column - 1), s.Row), shift); e.Handled = true; return;
+            case Key.Right or Key.Tab: Select(new CellRef(Math.Min(_lastColumn, s.Column + 1), s.Row), shift); e.Handled = true; return;
+            case Key.Home: Select(new CellRef(1, s.Row), shift); e.Handled = true; return;
             case Key.F2: BeginEdit(null); e.Handled = true; return;
-            case Key.Delete or Key.Back: Apply(""); e.Handled = true; return;
-            case Key.PageDown: Select(new CellRef(s.Column, Math.Min(_lastRow, s.Row + 20))); e.Handled = true; return;
-            case Key.PageUp: Select(new CellRef(s.Column, Math.Max(1, s.Row - 20))); e.Handled = true; return;
+            case Key.Delete or Key.Back: ClearRange(); e.Handled = true; return;
+            case Key.PageDown: Select(new CellRef(s.Column, Math.Min(_lastRow, s.Row + 20)), shift); e.Handled = true; return;
+            case Key.PageUp: Select(new CellRef(s.Column, Math.Max(1, s.Row - 20)), shift); e.Handled = true; return;
         }
+    }
+
+    // ---------- copy and paste ----------
+
+    /// <summary>
+    /// Copy the selection as tab separated text, which is what every spreadsheet reads and writes on the clipboard.
+    /// A cell with a formula copies as its formula, the way Excel copies one, so pasting it back puts a formula back.
+    /// </summary>
+    public void Copy()
+    {
+        var (left, top, right, bottom) = Range;
+        var rows = new List<IReadOnlyList<string>>();
+        for (int r = top; r <= bottom; r++)
+        {
+            var line = new List<string>();
+            for (int c = left; c <= right; c++)
+            {
+                var cell = Get(new CellRef(c, r));
+                line.Add(cell.Formula ?? cell.Display);
+            }
+            rows.Add(line);
+        }
+        try { Clipboard.SetText(Tabular.Write(rows)); } catch { /* another program may hold the clipboard */ }
+    }
+
+    /// <summary>Paste tab separated text, filling cells from the top left of the selection. One step of undo.</summary>
+    public void Paste()
+    {
+        string text;
+        try { text = Clipboard.ContainsText() ? Clipboard.GetText() : ""; } catch { return; }
+        if (text.Length == 0) return;
+
+        var (left, top, _, _) = Range;
+        var rows = Tabular.Read(text);
+        var changes = new List<(CellRef Cell, string Value)>();
+        for (int r = 0; r < rows.Count; r++)
+            for (int c = 0; c < rows[r].Count; c++)
+            {
+                int column = left + c, row = top + r;
+                if (column > 16384 || row > 1048576) continue;
+                changes.Add((new CellRef(column, row), rows[r][c]));
+            }
+        if (changes.Count == 0) return;
+
+        ApplyMany(changes);
+        _anchor = new CellRef(left, top);
+        Select(new CellRef(Math.Min(16384, left + Tabular.Width(rows) - 1),
+                           Math.Min(1048576, top + rows.Count - 1)), extend: true);
+    }
+
+    /// <summary>Empty every cell in the selection, in one step of undo.</summary>
+    public void ClearRange()
+    {
+        var (left, top, right, bottom) = Range;
+        var changes = new List<(CellRef, string)>();
+        for (int r = top; r <= bottom; r++)
+            for (int c = left; c <= right; c++)
+                if (!Get(new CellRef(c, r)).IsEmpty || Get(new CellRef(c, r)).Formula is not null)
+                    changes.Add((new CellRef(c, r), ""));
+        if (changes.Count > 0) ApplyMany(changes);
     }
 
     protected override void OnTextInput(TextCompositionEventArgs e)
@@ -265,26 +354,45 @@ public sealed class SheetView : Grid
     }
 
     /// <summary>Put a typed value into the selected cell and redraw the neighbourhood.</summary>
-    public void Apply(string typed)
+    public void Apply(string typed) => ApplyMany(new[] { (_selected, typed) });
+
+    /// <summary>
+    /// Change a set of cells together. A paste is one action to the person who did it, so it is one step of undo
+    /// rather than one per cell.
+    /// </summary>
+    public void ApplyMany(IReadOnlyList<(CellRef Cell, string Value)> changes)
     {
-        var current = Get(_selected);
-        string was = current.Formula ?? current.Raw;
-        if (was == typed) return;
-        var where = _selected;
-        _sheet.Set(_selected, typed);
+        var before = new List<(CellRef Cell, string Value)>();
+        foreach (var (cell, value) in changes)
+        {
+            var current = Get(cell);
+            string was = current.Formula ?? current.Raw;
+            if (was == value) continue;
+            before.Add((cell, was));
+        }
+        if (before.Count == 0) return;
+
+        foreach (var (cell, value) in changes) _sheet.Set(cell, value);
+        AfterChange();
+
+        var undoTo = before;
+        var landOn = _selected;
+        Edited?.Invoke(() =>
+        {
+            foreach (var (cell, was) in undoTo) _sheet.Set(cell, was);
+            AfterChange();
+            Select(landOn);
+        });
+    }
+
+    private void AfterChange()
+    {
         _cache.Clear();   // a formula elsewhere may now show differently
         var extent = _sheet.Extent;
         _lastColumn = Math.Max(_lastColumn, extent.Column + 6);
         _lastRow = Math.Max(_lastRow, extent.Row + 40);
         Redraw();
         SelectionChanged?.Invoke(_selected, Get(_selected));
-        Edited?.Invoke(() =>
-        {
-            _sheet.Set(where, was);
-            _cache.Clear();
-            Select(where);
-            Redraw();
-        });
     }
 
     // ---------- drawing ----------
@@ -340,7 +448,19 @@ public sealed class SheetView : Grid
                 }
             }
 
-            // The selected cell sits on top so its outline is never cut by a gridline.
+            // The selection sits on top so its outline is never cut by a gridline. A range is tinted; the cell you
+            // are actually on keeps the crisp outline so you can always see where typing would go.
+            var (left, top, right, bottom) = v.Range;
+            if (v.HasRange)
+            {
+                var tint = new SolidColorBrush(((SolidColorBrush)App.B("Accent")).Color) { Opacity = 0.12 };
+                foreach (var (column, x, cw) in v.VisibleColumns(w))
+                    if (column >= left && column <= right)
+                        foreach (var (row, y) in v.VisibleRows(h))
+                            if (row >= top && row <= bottom)
+                                dc.DrawRectangle(tint, null, new Rect(Snap(x) + 1, Snap(y) + 1, cw - 2, RowHeight - 2));
+            }
+
             foreach (var (column, x, cw) in v.VisibleColumns(w))
                 if (column == v._selected.Column)
                     foreach (var (row, y) in v.VisibleRows(h))
@@ -369,7 +489,7 @@ public sealed class SheetView : Grid
                 foreach (var (column, x, cw) in v.VisibleColumns(w))
                 {
                     dc.DrawLine(line, new Point(Snap(x + cw), 0), new Point(Snap(x + cw), h));
-                    bool on = column == v._selected.Column;
+                    bool on = column >= v.Range.Left && column <= v.Range.Right;
                     var t = v.Text(CellRef.ColumnName(column), on ? App.B("AccentInk") : App.B("Ink2"), on);
                     dc.DrawText(t, new Point(x + (cw - t.Width) / 2, (h - t.Height) / 2));
                 }
@@ -380,7 +500,7 @@ public sealed class SheetView : Grid
                 foreach (var (row, y) in v.VisibleRows(h))
                 {
                     dc.DrawLine(line, new Point(0, Snap(y + RowHeight)), new Point(w, Snap(y + RowHeight)));
-                    bool on = row == v._selected.Row;
+                    bool on = row >= v.Range.Top && row <= v.Range.Bottom;
                     var t = v.Text(row.ToString(CultureInfo.CurrentCulture), on ? App.B("AccentInk") : App.B("Ink2"), on);
                     dc.DrawText(t, new Point(w - 7 - t.Width, y + 4));
                 }
