@@ -17,8 +17,8 @@ public static class SheetSuite
         s.Check("a column with no row is refused", !CellRef.TryParse("AB", out _));
         s.Check("nonsense is refused", !CellRef.TryParse("hello", out _));
 
-        var path = Fixtures.Path_("sheet.xlsx");
-        if (path is null) { s.Check("fixtures found", false, "tests/fixtures/sheet.xlsx is missing"); return s; }
+        if (Fixtures.Missing(s, "sheet.xlsx", "book.xlsx")) return s;
+        var path = Fixtures.Path_("sheet.xlsx")!;
 
         var book = new Workbook(OpcPackage.Open(path));
         s.Equal("one sheet", 1, book.Sheets.Count);
@@ -73,10 +73,8 @@ public static class SheetSuite
         finally { try { File.Delete(work); } catch { } }
 
         // A workbook with several sheets must expose all of them, by name, each with its own cells.
-        var multi = Fixtures.Path_("book.xlsx");
-        if (multi is null) s.Check("multi-sheet fixture found", false, "tests/fixtures/book.xlsx is missing");
-        else
         {
+            var multi = Fixtures.Path_("book.xlsx")!;
             var many = new Workbook(OpcPackage.Open(multi));
             s.Equal("three sheets", 3, many.Sheets.Count);
             s.Equal("sheets keep their order and names", "Summary,Detail,Notes",

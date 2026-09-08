@@ -13,8 +13,8 @@ public static class ScaleSuite
     public static Suite Run()
     {
         var s = new Suite("scale");
-        var path = Fixtures.Path_("large.xlsx");
-        if (path is null) { s.Check("large fixture found", false, "tests/fixtures/large.xlsx is missing"); return s; }
+        if (Fixtures.Missing(s, "large.xlsx")) return s;
+        var path = Fixtures.Path_("large.xlsx")!;
 
         var book = new Workbook(OpcPackage.Open(path));
         var sheet = book.Sheets[0];

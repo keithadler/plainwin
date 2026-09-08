@@ -106,6 +106,8 @@ dotnet run --project src/Plain.Selftest            # the checks
 scripts/publish.sh all                             # the four exes into dist/
 ```
 
-`PLAIN_CORPUS=/path/to/real/office/files` points the self-test at a folder of your own documents and demands a byte-identical round trip on every one.
+`plain selftest` works from a downloaded exe on its own: the checks that need the repository's test files say they were skipped rather than failing, and everything else runs.
+
+Two environment variables go deeper. `PLAIN_CORPUS=/path/to/real/office/files` points the self-test at a folder of your own documents and demands a byte-identical round trip on every one. `PLAIN_FUZZ=25000` sets how many damaged copies of each test file to throw at the readers.
 
 Free, MIT, built by Keith Adler. More at [keithadler.github.io](https://keithadler.github.io/).

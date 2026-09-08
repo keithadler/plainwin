@@ -5,8 +5,8 @@ public static class DocSuite
     public static Suite Run()
     {
         var s = new Suite("doc");
-        var path = Fixtures.Path_("doc.docx");
-        if (path is null) { s.Check("fixtures found", false, "tests/fixtures/doc.docx is missing"); return s; }
+        if (Fixtures.Missing(s, "doc.docx")) return s;
+        var path = Fixtures.Path_("doc.docx")!;
 
         var doc = new Document(OpcPackage.Open(path));
         s.Check("the document has blocks", doc.BlockCount > 4);

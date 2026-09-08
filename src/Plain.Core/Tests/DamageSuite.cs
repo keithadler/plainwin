@@ -12,6 +12,7 @@ public static class DamageSuite
     {
         var s = new Suite("damage");
         var names = new[] { "sheet.xlsx", "doc.docx", "deck.pptx" };
+        if (Fixtures.Missing(s, names)) return s;
         var random = new Random(20260908);   // fixed, so a failure can be reproduced
         // Deeper runs on demand: PLAIN_FUZZ=5000 dotnet run --project src/Plain.Selftest -- damage
         int flips = int.TryParse(Environment.GetEnvironmentVariable("PLAIN_FUZZ"), out var n) && n > 0 ? n : 400;
@@ -21,9 +22,7 @@ public static class DamageSuite
 
         foreach (var name in names)
         {
-            var path = Fixtures.Path_(name);
-            if (path is null) { s.Check($"fixture {name} found", false); continue; }
-            var original = File.ReadAllBytes(path);
+            var original = File.ReadAllBytes(Fixtures.Path_(name)!);
 
             foreach (var (how, damaged) in Damage(original, random, flips))
             {

@@ -27,6 +27,19 @@ public static class Fixtures
         return File.Exists(p) ? p : null;
     }
 
+    /// <summary>
+    /// True when any of these fixtures is not to hand, having noted it as a skip rather than a failure. Someone who
+    /// downloads the exe and runs "plain selftest" has no fixtures; they should see the checks that can run pass,
+    /// not a wall of errors about files they were never given.
+    /// </summary>
+    public static bool Missing(Suite suite, params string[] names)
+    {
+        var absent = names.Where(n => Path_(n) is null).ToList();
+        if (absent.Count == 0) return false;
+        suite.Check($"skipped: needs {string.Join(", ", absent)} from the repository's tests/fixtures", true);
+        return true;
+    }
+
     /// <summary>A scratch copy, so a test never writes over a fixture.</summary>
     public static string Copy(string name)
     {

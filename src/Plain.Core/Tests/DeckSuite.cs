@@ -5,8 +5,8 @@ public static class DeckSuite
     public static Suite Run()
     {
         var s = new Suite("deck");
-        var path = Fixtures.Path_("deck.pptx");
-        if (path is null) { s.Check("fixtures found", false, "tests/fixtures/deck.pptx is missing"); return s; }
+        if (Fixtures.Missing(s, "deck.pptx")) return s;
+        var path = Fixtures.Path_("deck.pptx")!;
 
         var deck = new Deck(OpcPackage.Open(path));
         s.Equal("two slides", 2, deck.Slides.Count);

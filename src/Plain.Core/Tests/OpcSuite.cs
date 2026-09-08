@@ -16,8 +16,8 @@ public static class OpcSuite
             () => OpcPackage.Read(Encoding.ASCII.GetBytes("this is plainly not a spreadsheet")));
         s.Throws<OpcPackage.PackageException>("an empty file is refused", () => OpcPackage.Read(Array.Empty<byte>()));
 
-        var path = Fixtures.Path_("sheet.xlsx");
-        if (path is null) { s.Check("fixtures found", false, "tests/fixtures/sheet.xlsx is missing"); return s; }
+        if (Fixtures.Missing(s, "sheet.xlsx", "book.xlsx", "doc.docx", "deck.pptx")) return s;
+        var path = Fixtures.Path_("sheet.xlsx")!;
 
         var original = File.ReadAllBytes(path);
         var pkg = OpcPackage.Open(path);
