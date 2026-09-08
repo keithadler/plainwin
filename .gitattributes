@@ -1,0 +1,7 @@
+* text=auto
+# Fixtures are real Office files. They must arrive byte for byte: no line-ending conversion, ever.
+# (Later lines win, so this comes last.)
+tests/fixtures/** -text
+*.xlsx -text
+*.docx -text
+*.pptx -text
