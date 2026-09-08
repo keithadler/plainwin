@@ -4,10 +4,16 @@ namespace Plain.Core;
 
 public enum BlockKind { Paragraph, Heading1, Heading2, Heading3, ListItem, TableCell }
 
-/// <summary>One block of a document as Plain shows it: the text, what kind of block it is, and where it lives.</summary>
-public sealed record Block(int Index, BlockKind Kind, string Text, bool Lossless)
+/// <summary>
+/// One block of a document as Plain shows it: the text, what kind of block it is, and where it lives. A block inside
+/// a table also carries which table, row and column it sits in, so a table can be shown as a table rather than as a
+/// column of loose cells.
+/// </summary>
+public sealed record Block(int Index, BlockKind Kind, string Text, bool Lossless,
+                           int Table = -1, int Row = -1, int Column = -1)
 {
     public bool IsHeading => Kind is BlockKind.Heading1 or BlockKind.Heading2 or BlockKind.Heading3;
+    public bool InTable => Table >= 0;
 }
 
 /// <summary>
@@ -37,7 +43,25 @@ public sealed class Document
         _shape = new TextShape(_doc.Root!, Ns.Word);
         var body = _doc.Root!.Element(Ns.Word + "body") ?? _doc.Root!;
         _paragraphs = body.Descendants(Ns.Word + "p").ToList();
+
+        // Work out each paragraph's place in a table once, rather than walking ancestors for every read.
+        var tables = body.Descendants(Ns.Word + "tbl").ToList();
+        var tableIndex = new Dictionary<XElement, int>();
+        for (int i = 0; i < tables.Count; i++) tableIndex[tables[i]] = i;
+
+        foreach (var p in _paragraphs)
+        {
+            var cell = p.Ancestors(Ns.Word + "tc").FirstOrDefault();
+            var row = cell?.Parent;
+            var table = row?.Parent;
+            if (cell is null || row is null || table is null || !tableIndex.TryGetValue(table, out var t)) continue;
+            int r = table.Elements(Ns.Word + "tr").ToList().IndexOf(row);
+            int c = row.Elements(Ns.Word + "tc").ToList().IndexOf(cell);
+            _place[p] = (t, r, c);
+        }
     }
+
+    private readonly Dictionary<XElement, (int Table, int Row, int Column)> _place = new();
 
     public IEnumerable<Block> Blocks()
     {
@@ -58,7 +82,9 @@ public sealed class Document
             : style.Contains("Heading3", StringComparison.OrdinalIgnoreCase) ? BlockKind.Heading3
             : BlockKind.Paragraph;
 
-        return new Block(index, kind, _shape.TextOf(p), _shape.IsSingleRun(p) || _shape.TextOf(p).Length == 0);
+        var place = _place.TryGetValue(p, out var found) ? found : (-1, -1, -1);
+        return new Block(index, kind, _shape.TextOf(p), _shape.IsSingleRun(p) || _shape.TextOf(p).Length == 0,
+                         place.Item1, place.Item2, place.Item3);
     }
 
     /// <summary>Replace a block's text. Returns false when mixed formatting inside that block was flattened.</summary>

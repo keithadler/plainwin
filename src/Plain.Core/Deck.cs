@@ -71,7 +71,9 @@ public sealed class Slide
         for (int i = 0; i < Shapes.Count; i++)
         {
             var sp = Shapes[i];
-            string placeholder = (string?)sp.Descendants(Ns.Pres + "ph").FirstOrDefault()?.Attribute("type") ?? "body";
+            // A shape with no placeholder element is plain text on the slide, not a body placeholder.
+            var ph = sp.Descendants(Ns.Pres + "ph").FirstOrDefault();
+            string placeholder = ph is null ? "" : (string?)ph.Attribute("type") ?? "body";
             var body = Body(sp)!;
             var shape = new TextShape(body, Ns.Draw);
             yield return new SlideText(i, placeholder, shape.Paragraphs.Select(shape.TextOf).ToList());

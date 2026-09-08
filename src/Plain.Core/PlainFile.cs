@@ -49,7 +49,15 @@ public sealed class PlainFile
         }
     }
 
-    public IReadOnlyList<PartNote> Parts() => Preserved.Describe(Package, ShownParts());
+    /// <summary>
+    /// Every part with its role. Pending edits are pushed into the package first, because a part is only "edited"
+    /// once the model has written it there, and a count taken before that would report a save as changing nothing.
+    /// </summary>
+    public IReadOnlyList<PartNote> Parts()
+    {
+        Flush();
+        return Preserved.Describe(Package, ShownParts());
+    }
 
     /// <summary>How many parts Plain is holding untouched, which is the number the status bar shows.</summary>
     public (int Total, int Edited, int Kept) Counts()

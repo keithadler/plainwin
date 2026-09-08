@@ -16,6 +16,9 @@ public sealed record PartNote(string Name, PartRole Role, string What, long Byte
     public string Size => Bytes >= 1_000_000 ? $"{Bytes / 1_048_576.0:0.0} MB"
                         : Bytes >= 1_000 ? $"{Bytes / 1024.0:0.0} KB"
                         : $"{Bytes} B";
+
+    /// <summary>What a screen reader announces for this row.</summary>
+    public override string ToString() => $"{What}, {Size}, {Name}";
 }
 
 /// <summary>

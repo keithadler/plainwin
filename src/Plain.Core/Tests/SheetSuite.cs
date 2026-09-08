@@ -63,6 +63,8 @@ public static class SheetSuite
             s.Check("no formula keeps a cached value after an edit", !HasCachedFormulaValue(sheetXml0),
                     "a formula cell still carries the value Excel cached before the edit");
             s.Equal("a formula's own text survives", "=B2*2", s2.Read("F2").Formula);
+            s.Equal("a formula with no cached value shows as the formula", "=B2*2", s2.Read("F2").Display);
+            s.Equal("a formula cell with no value has no raw value", "", s2.Read("F2").Raw);
             s.Check("a plain number keeps its value", s2.Read("C2").Raw.Length > 0);
 
             // Cells must stay in ascending order or Excel calls the file damaged.

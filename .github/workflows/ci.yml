@@ -1,0 +1,34 @@
+name: build and test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Build the engine and the window
+        run: |
+          dotnet build src/Plain.Core/Plain.Core.csproj -c Release --nologo
+          dotnet build src/Plain/Plain.csproj -c Release --nologo
+          dotnet build src/Plain/Plain.csproj -c Release --nologo -p:CliBuild=true
+
+      - name: Run the checks
+        run: dotnet run --project src/Plain.Selftest -c Release
+
+      - name: Publish the console twin
+        run: dotnet publish src/Plain/Plain.csproj -c Release -r win-x64 -o dist/cli -p:CliBuild=true --nologo
+
+      - name: A save must not change a file it did not edit
+        run: dist/cli/plain.exe roundtrip tests/fixtures/sheet.xlsx tests/fixtures/doc.docx tests/fixtures/deck.pptx
+
+      - name: End to end through the console twin
+        run: pwsh tests/integration.ps1 dist/cli/plain.exe

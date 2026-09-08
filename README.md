@@ -1,0 +1,79 @@
+# Plain for Windows
+
+Opens Word, Excel and PowerPoint files, edits the basics, and never damages what it doesn't understand.
+
+One window. No ribbon, no account, no cloud, no assistant. Open a file, change the words or the numbers, save. Everything in the file that Plain cannot draw is listed on the right and written back exactly as it was found.
+
+![Plain showing a workbook](docs/screenshots/work.png)
+
+## Download
+
+**[Plain-for-Windows-1.0.0-x64.exe](https://github.com/keithadler/plainwin/releases/latest/download/Plain-for-Windows-1.0.0-x64.exe)** for ordinary Intel and AMD PCs, or **[Plain-for-Windows-1.0.0-arm64.exe](https://github.com/keithadler/plainwin/releases/latest/download/Plain-for-Windows-1.0.0-arm64.exe)** for Windows on ARM. Windows 10 or 11. One exe, no installer, no runtime to install; put it anywhere and double-click.
+
+The console twin for scripts: [plain-1.0.0-x64.exe](https://github.com/keithadler/plainwin/releases/latest/download/plain-1.0.0-x64.exe) and [plain-1.0.0-arm64.exe](https://github.com/keithadler/plainwin/releases/latest/download/plain-1.0.0-arm64.exe).
+
+## The promise, and how it is checked
+
+Every other editor that opens a `.docx` reads it into its own model and writes that model back out. Whatever the model has no place for is gone. Plain does the opposite: it opens the file as the ZIP package it really is, holds every part as the exact bytes it occupies, and writes those same bytes back for every part nobody edited.
+
+So the promise is not "it looks the same". It is **open a file, save it without changing anything, and you get the same file back, byte for byte**. That is a claim a test can check, and it is checked, against real Word, Excel and PowerPoint documents:
+
+```bash
+plain roundtrip *.docx *.xlsx *.pptx
+```
+
+Change one cell and only the parts that hold that cell are rewritten. The status bar counts it for you on every save: *10 parts read, 4 shown, 6 kept byte for byte*.
+
+## What it edits
+
+- **Excel**: cell values, text and formulas, across the sheets in the workbook. Column widths and number formats come from the file, so the sheet looks like the one whoever made it laid out.
+- **Word**: the text of the body, with headings and tables shown as headings and tables.
+- **PowerPoint**: the text on each slide, picked from a rail of slides.
+
+## What it keeps but does not show
+
+Charts, pivot tables, macros, SmartArt, pictures, embedded objects, tracked changes, comments, headers, footers, slide layouts, masters, themes, and anything else. Each one is named in the panel on the right with its size, and each one is in the saved file unchanged.
+
+![Plain showing a document](docs/screenshots/doc.png)
+
+## Honest limits
+
+- **No page layout.** Matching Word's pagination needs Word's own fonts and line breaking. Plain shows a document as one scrolling column and says so in the status bar. If you need to see page breaks, you need Word.
+- **No formula evaluation.** Plain does not work out what `=SUM(B2:B4)` comes to. Because of that, editing a cell clears the values Excel cached beside the formulas on that sheet, so nothing on screen is a number that stopped being true. A formula with no computed value shows as the formula. Excel and LibreOffice recalculate it when they open the file.
+- **Mixed formatting inside one paragraph collapses when you retype it.** A paragraph with one bold word in the middle becomes one run in the first run's formatting. Plain says so in the status bar when it happens. Paragraphs you do not touch are untouched.
+- **No drawing.** Shapes, pictures and diagrams are kept, never rendered.
+- **No ZIP64.** A package using ZIP64 records is opened and re-saved unchanged, but not edited.
+- **Not a replacement for Office.** It is the thing to reach for when you need to change three words in a contract, or one number in a forecast, without a four gigabyte install.
+
+## Command line
+
+`plain.exe` is the same program as a console app.
+
+```
+plain info <file>                what the file is, and what Plain keeps untouched
+plain parts <file> [--json]      every part, and whether Plain shows it or preserves it
+plain text <file>                the text, as plain text
+plain cells <file> [sheet]       every filled cell, as reference<tab>value
+plain get <file> <ref>           one cell, or one block by number
+plain set <file> <ref> <value>   change one cell or block, then save in place
+plain roundtrip <file>...        prove a save changes nothing: byte compares the result
+plain selftest                   run the built-in checks
+```
+
+Exit codes: 0 fine, 1 something to look at, 2 problem, 64 usage.
+
+## Privacy
+
+Nothing leaves your PC. There is no account, no telemetry, no update check, no network code of any kind. See [PRIVACY.md](PRIVACY.md).
+
+## Building
+
+```bash
+dotnet build src/Plain.Core/Plain.Core.csproj      # the engine, pure .NET, builds anywhere
+dotnet run --project src/Plain.Selftest            # the checks
+scripts/publish.sh all                             # the four exes into dist/
+```
+
+`PLAIN_CORPUS=/path/to/real/office/files` points the self-test at a folder of your own documents and demands a byte-identical round trip on every one.
+
+Free, MIT, built by Keith Adler. More at [keithadler.github.io](https://keithadler.github.io/).

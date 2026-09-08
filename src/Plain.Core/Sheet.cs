@@ -149,6 +149,7 @@ public sealed class Sheet
         get
         {
             if (_data is not null) return _data;
+            _widths = null;
             _doc = Xml.Parse(_book.Package.Read(PartName));
             _data = _doc.Root!.Element(Ns.Sheet + "sheetData")
                     ?? throw new OpcPackage.PackageException($"The sheet \"{Name}\" has no cell data.");
@@ -171,6 +172,38 @@ public sealed class Sheet
                     }
             return new CellRef(maxCol, maxRow);
         }
+    }
+
+    /// <summary>
+    /// The column widths the file stores, in Excel's character units. Drawing a grid at the widths someone chose is
+    /// most of what makes a spreadsheet look like theirs rather than like a generic table.
+    /// </summary>
+    public double WidthChars(int column)
+    {
+        _widths ??= ReadWidths();
+        foreach (var (min, max, width) in _widths) if (column >= min && column <= max) return width;
+        return _defaultWidth;
+    }
+
+    private List<(int Min, int Max, double Width)>? _widths;
+    private double _defaultWidth = 8.43;
+
+    private List<(int, int, double)> ReadWidths()
+    {
+        var list = new List<(int, int, double)>();
+        var sheetElement = _doc?.Root ?? Xml.Parse(_book.Package.Read(PartName)).Root;
+        var format = sheetElement?.Element(Ns.Sheet + "sheetFormatPr");
+        if (format is not null && double.TryParse((string?)format.Attribute("defaultColWidth"),
+                System.Globalization.NumberStyles.Float, CultureInfo.InvariantCulture, out var d) && d > 0)
+            _defaultWidth = d;
+        foreach (var c in sheetElement?.Element(Ns.Sheet + "cols")?.Elements(Ns.Sheet + "col") ?? Enumerable.Empty<XElement>())
+        {
+            if (!int.TryParse((string?)c.Attribute("min"), out var min)) continue;
+            if (!int.TryParse((string?)c.Attribute("max"), out var max)) continue;
+            if (!double.TryParse((string?)c.Attribute("width"), System.Globalization.NumberStyles.Float, CultureInfo.InvariantCulture, out var w)) continue;
+            list.Add((min, Math.Min(max, 16384), w));
+        }
+        return list;
     }
 
     private XElement? FindRow(int row) =>
@@ -225,7 +258,13 @@ public sealed class Sheet
                 break;
         }
 
-        if (formula is not null) kind = CellKind.Formula;
+        if (formula is not null)
+        {
+            kind = CellKind.Formula;
+            // Plain clears the cached value beside a formula when the sheet changes, so there is often nothing to
+            // show. Showing the formula itself beats showing an empty cell where a total used to be.
+            if (display.Length == 0) display = "=" + formula;
+        }
         return new Cell(reference, kind, raw, display, formula is null ? null : "=" + formula);
     }
 

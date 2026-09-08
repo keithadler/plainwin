@@ -74,6 +74,14 @@ public static class OpcSuite
         s.Equal("nothing is edited before an edit", 0, counts.Edited);
         s.Equal("the counts add up", counts.Total, counts.Edited + counts.Kept);
 
+        // The count a save reports must include edits still sitting in the model.
+        var counted = PlainFile.Open(path);
+        counted.Workbook!.Sheets[0].Set("A1", "counted");
+        var after = counted.Counts();
+        s.Check("an edit still in the model is counted before saving", after.Edited >= 1,
+                $"reported {after.Edited} parts rewritten after changing a cell");
+        s.Equal("the counts still add up after an edit", after.Total, after.Edited + after.Kept);
+
         return s;
     }
 }
