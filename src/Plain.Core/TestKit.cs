@@ -45,6 +45,7 @@ public static class SelfTest
         ("sheet", SheetSuite.Run),
         ("doc", DocSuite.Run),
         ("deck", DeckSuite.Run),
+        ("scale", ScaleSuite.Run),
         ("corpus", CorpusSuite.Run),
     };
 

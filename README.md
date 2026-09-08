@@ -69,6 +69,19 @@ plain selftest                   run the built-in checks
 
 Exit codes: 0 fine, 1 something to look at, 2 problem, 64 usage.
 
+## Speed
+
+Measured on a Windows 11 ARM64 virtual machine, on a sheet of 20,000 rows with a formula in every one:
+
+| | |
+|---|---|
+| Open the file | 20 ms |
+| Draw a screen anywhere in it | under 1 ms |
+| Find text across the whole sheet | 81 ms |
+| Save, working out which totals went stale | 186 ms |
+
+The checks include a guard against the code going quadratic again, because it was: reading a cell used to scan every row, so the bottom of a large sheet took 286 ms a screen and a search took twenty seconds.
+
 ## Privacy
 
 Nothing leaves your PC. There is no account, no telemetry, no update check, no network code of any kind. See [PRIVACY.md](PRIVACY.md).

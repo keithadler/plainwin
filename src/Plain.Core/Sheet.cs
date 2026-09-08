@@ -241,6 +241,8 @@ public sealed class Sheet
         {
             if (_data is not null) return _data;
             _widths = null;
+            _rowIndex = null;
+            _extent = null;
             _doc = Xml.Parse(_book.Package.Read(PartName));
             _data = _doc.Root!.Element(Ns.Sheet + "sheetData")
                     ?? throw new OpcPackage.PackageException($"The sheet \"{Name}\" has no cell data.");
@@ -248,11 +250,14 @@ public sealed class Sheet
         }
     }
 
+    private CellRef? _extent;
+
     /// <summary>The furthest cell that holds anything, which is how wide and tall Plain draws the grid.</summary>
     public CellRef Extent
     {
         get
         {
+            if (_extent is { } known) return known;
             int maxCol = 1, maxRow = 1;
             foreach (var row in Data.Elements(Ns.Sheet + "row"))
                 foreach (var c in row.Elements(Ns.Sheet + "c"))
@@ -261,7 +266,8 @@ public sealed class Sheet
                         if (r.Column > maxCol) maxCol = r.Column;
                         if (r.Row > maxRow) maxRow = r.Row;
                     }
-            return new CellRef(maxCol, maxRow);
+            _extent = new CellRef(maxCol, maxRow);
+            return _extent.Value;
         }
     }
 
@@ -297,8 +303,27 @@ public sealed class Sheet
         return list;
     }
 
-    private XElement? FindRow(int row) =>
-        Data.Elements(Ns.Sheet + "row").FirstOrDefault(r => (int?)r.Attribute("r") == row);
+    // Rows are looked up by number rather than scanned for. Without this, drawing one screen of a twenty thousand
+    // row sheet walked the whole sheet for every cell, and searching one was quadratic: twenty seconds, not twenty
+    // milliseconds.
+    private Dictionary<int, XElement>? _rowIndex;
+
+    private Dictionary<int, XElement> RowIndex
+    {
+        get
+        {
+            if (_rowIndex is not null) return _rowIndex;
+            // Load the sheet before building, because loading it clears this very field.
+            var data = Data;
+            var index = new Dictionary<int, XElement>();
+            foreach (var row in data.Elements(Ns.Sheet + "row"))
+                if ((int?)row.Attribute("r") is { } number) index[number] = row;
+            _rowIndex = index;
+            return index;
+        }
+    }
+
+    private XElement? FindRow(int row) => RowIndex.TryGetValue(row, out var found) ? found : null;
 
     private XElement? FindCell(CellRef cell)
     {
@@ -311,8 +336,11 @@ public sealed class Sheet
     public Cell Read(CellRef reference)
     {
         var c = FindCell(reference);
-        if (c is null) return new Cell(reference, CellKind.Empty, "", "", null);
+        return c is null ? new Cell(reference, CellKind.Empty, "", "", null) : ReadFrom(c, reference);
+    }
 
+    private Cell ReadFrom(XElement c, CellRef reference)
+    {
         string? type = (string?)c.Attribute("t");
         string? formula = c.Element(Ns.Sheet + "f")?.Value;
         var v = c.Element(Ns.Sheet + "v");
@@ -359,14 +387,14 @@ public sealed class Sheet
         return new Cell(reference, kind, raw, display, formula is null ? null : "=" + formula);
     }
 
-    /// <summary>Every non-empty cell, in reading order.</summary>
+    /// <summary>Every non-empty cell, in reading order. Each one is read from the element in hand, never looked up again.</summary>
     public IEnumerable<Cell> Cells()
     {
         foreach (var row in Data.Elements(Ns.Sheet + "row"))
             foreach (var c in row.Elements(Ns.Sheet + "c"))
                 if (CellRef.TryParse((string?)c.Attribute("r") ?? "", out var r))
                 {
-                    var cell = Read(r);
+                    var cell = ReadFrom(c, r);
                     if (!cell.IsEmpty || cell.Formula is not null) yield return cell;
                 }
     }
@@ -407,6 +435,7 @@ public sealed class Sheet
             _book.RequestFullRecalculation();
         }
         _dirty = true;
+        _extent = null;
         _book.NoteChanged(this, reference);
     }
 
@@ -420,6 +449,7 @@ public sealed class Sheet
             row = new XElement(Ns.Sheet + "row", new XAttribute("r", reference.Row));
             var after = Data.Elements(Ns.Sheet + "row").LastOrDefault(r => ((int?)r.Attribute("r") ?? 0) < reference.Row);
             if (after is not null) after.AddAfterSelf(row); else Data.AddFirst(row);
+            RowIndex[reference.Row] = row;
         }
 
         string want = reference.ToString();
