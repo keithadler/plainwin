@@ -43,6 +43,7 @@
   <ItemGroup Condition="'$(CliBuild)' == 'true'">
     <Compile Remove="MainWindow.xaml.cs" />
     <Compile Remove="SheetView.cs" />
+    <Compile Remove="WorkbookView.cs" />
     <Compile Remove="DocView.cs" />
     <Compile Remove="DeckView.cs" />
     <Compile Remove="Screenshots.cs" />

@@ -104,15 +104,16 @@ public partial class MainWindow : Window
         {
             case FileKind.Spreadsheet:
             {
-                var sheetView = new SheetView(file.Workbook!.Sheets[0]);
-                view = sheetView;
+                var bookView = new WorkbookView(file.Workbook!);
+                view = bookView;
                 entry = new OpenFile { File = file, View = view, FilePath = path };
-                sheetView.SelectionChanged += (reference, cell) =>
+                bookView.SelectionChanged += (reference, cell) =>
                 {
                     CellRefText.Text = reference.ToString();
                     CellEditor.Text = cell.Formula ?? cell.Raw;
+                    if (_active == entry) StatusStat.Text = Describe(entry);
                 };
-                sheetView.Edited += undo => { entry.Undo.Push(undo); entry.Dirty = true; Refresh(); };
+                bookView.Edited += undo => { entry.Undo.Push(undo); entry.Dirty = true; Refresh(); };
                 break;
             }
             case FileKind.Document:
@@ -158,6 +159,7 @@ public partial class MainWindow : Window
             case Key.S: OnSave(sender, e); e.Handled = true; break;
             case Key.Z: OnUndo(sender, e); e.Handled = true; break;
             case Key.W: CloseActive(); e.Handled = true; break;
+            case Key.F: ShowFind(); e.Handled = true; break;
         }
     }
 
@@ -173,6 +175,34 @@ public partial class MainWindow : Window
             Say($"Saved {_active.Name}. {edited} of {total} parts rewritten, {kept} kept byte for byte.");
         }
         catch (Exception ex) { Say("Could not save: " + Explain(ex)); }
+        Refresh();
+    }
+
+    /// <summary>
+    /// Write the file, with the changes, to a new name and leave the original alone. The copy is a whole file, not a
+    /// patch: every part Plain preserved is in it, byte for byte, exactly as in the original.
+    /// </summary>
+    private void OnSaveCopy(object sender, RoutedEventArgs e)
+    {
+        if (_active is null) return;
+        var extension = Path.GetExtension(_active.FilePath);
+        var dialog = new SaveFileDialog
+        {
+            Title = "Save a copy",
+            FileName = Path.GetFileNameWithoutExtension(_active.FilePath) + " copy" + extension,
+            DefaultExt = extension,
+            Filter = $"Same kind of file (*{extension})|*{extension}|All files|*.*",
+            InitialDirectory = Path.GetDirectoryName(_active.FilePath),
+            OverwritePrompt = true,
+        };
+        if (dialog.ShowDialog(this) != true) return;
+        try
+        {
+            var (total, edited, kept) = _active.File.Counts();
+            _active.File.Save(dialog.FileName);
+            Say($"Wrote {Path.GetFileName(dialog.FileName)}. {edited} of {total} parts rewritten, {kept} copied byte for byte. {_active.Name} is untouched.");
+        }
+        catch (Exception ex) { Say("Could not write the copy: " + Explain(ex)); }
         Refresh();
     }
 
@@ -206,24 +236,78 @@ public partial class MainWindow : Window
         Refresh();
     }
 
+    // ---------- find ----------
+
+    private int _findAt = -1;
+    private int _findCount;
+
+    private void ShowFind()
+    {
+        if (_active is null) return;
+        FindBar.Visibility = Visibility.Visible;
+        FindBox.Focus();
+        FindBox.SelectAll();
+        RunFind(FindBox.Text);
+    }
+
+    private void OnFindClose(object sender, RoutedEventArgs e)
+    {
+        FindBar.Visibility = Visibility.Collapsed;
+        (_active?.View as UIElement)?.Focus();
+    }
+
+    private void OnFindChanged(object sender, TextChangedEventArgs e) => RunFind(FindBox.Text);
+
+    private void RunFind(string term)
+    {
+        if (_active?.View is not IFindable findable) { FindCount.Text = ""; return; }
+        _findCount = findable.FindAll(term);
+        _findAt = -1;
+        FindCount.Text = term.Length == 0 ? "" : _findCount == 0 ? "not found" : $"{_findCount} found";
+        FindPrev.IsEnabled = FindNext.IsEnabled = _findCount > 0;
+        if (_findCount > 0) Step(1);
+    }
+
+    private void Step(int by)
+    {
+        if (_active?.View is not IFindable findable || _findCount == 0) return;
+        _findAt = ((_findAt + by) % _findCount + _findCount) % _findCount;   // wrap both ways
+        string where = findable.Reveal(_findAt);
+        FindCount.Text = $"{_findAt + 1} of {_findCount}" + (where.Length > 0 ? $"  ·  {where}" : "");
+    }
+
+    private void OnFindNext(object sender, RoutedEventArgs e) => Step(1);
+    private void OnFindPrevious(object sender, RoutedEventArgs e) => Step(-1);
+
+    private void OnFindKey(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Escape) { OnFindClose(sender, e); e.Handled = true; }
+        else if (e.Key == Key.Enter)
+        {
+            Step(Keyboard.Modifiers == ModifierKeys.Shift ? -1 : 1);
+            e.Handled = true;
+        }
+    }
+
     // ---------- the formula bar ----------
 
     private void OnFormulaKey(object sender, KeyEventArgs e)
     {
-        if (_active?.View is not SheetView view) return;
-        if (e.Key == Key.Enter) { view.Apply(CellEditor.Text); view.Focus(); e.Handled = true; }
+        if (_active?.View is not WorkbookView view) return;
+        if (e.Key == Key.Enter) { view.Apply(CellEditor.Text); view.CurrentGrid.Focus(); e.Handled = true; }
         else if (e.Key == Key.Escape)
         {
-            var cell = view.Sheet.Read(view.Selected);
+            var grid = view.CurrentGrid;
+            var cell = grid.Sheet.Read(grid.Selected);
             CellEditor.Text = cell.Formula ?? cell.Raw;
-            view.Focus();
+            grid.Focus();
             e.Handled = true;
         }
     }
 
     private void OnFormulaCommit(object sender, RoutedEventArgs e)
     {
-        if (_active?.View is SheetView view && CellEditor.IsKeyboardFocusWithin == false) view.Apply(CellEditor.Text);
+        if (_active?.View is WorkbookView view && CellEditor.IsKeyboardFocusWithin == false) view.Apply(CellEditor.Text);
     }
 
     // ---------- painting the chrome ----------
@@ -241,6 +325,7 @@ public partial class MainWindow : Window
         Rail.Visibility = _railVisible && _active is not null ? Visibility.Visible : Visibility.Collapsed;
 
         SaveBtn.IsEnabled = _active?.Dirty == true;
+        CopyBtn.IsEnabled = _active is not null;
         UndoBtn.IsEnabled = _active?.Undo.Count > 0;
         SaveBtn.Content = _active?.Dirty == true ? "Save" : "Saved";
 
@@ -294,10 +379,11 @@ public partial class MainWindow : Window
 
     private static string Describe(OpenFile file)
     {
-        var sheet = (file.View as SheetView)?.Sheet;
-        if (sheet is null) return "";
-        var extent = sheet.Extent;
-        return $"{sheet.Name}, used to {extent}";
+        if (file.View is not WorkbookView view) return "";
+        var sheet = view.CurrentSheet;
+        int count = file.File.Workbook!.Sheets.Count;
+        string where = count > 1 ? $"{sheet.Name} of {count} sheets" : sheet.Name;
+        return $"{where}, used to {sheet.Extent}";
     }
 
     private void BuildTabs()

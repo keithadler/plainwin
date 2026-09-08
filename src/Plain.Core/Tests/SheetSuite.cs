@@ -73,6 +73,38 @@ public static class SheetSuite
         }
         finally { try { File.Delete(work); } catch { } }
 
+        // A workbook with several sheets must expose all of them, by name, each with its own cells.
+        var multi = Fixtures.Path_("book.xlsx");
+        if (multi is null) s.Check("multi-sheet fixture found", false, "tests/fixtures/book.xlsx is missing");
+        else
+        {
+            var many = new Workbook(OpcPackage.Open(multi));
+            s.Equal("three sheets", 3, many.Sheets.Count);
+            s.Equal("sheets keep their order and names", "Summary,Detail,Notes",
+                    string.Join(',', many.Sheets.Select(x => x.Name)));
+            s.Equal("the first sheet's cells", "Licences", many.Sheets[0].Read("A2").Display);
+            s.Equal("the second sheet's cells", "Seat", many.Sheets[1].Read("A2").Display);
+            s.Equal("the third sheet's cells", "Renewal is in March.", many.Sheets[2].Read("A2").Display);
+            s.Check("each sheet has its own part",
+                    many.Sheets.Select(x => x.PartName).Distinct().Count() == 3);
+
+            // Editing one sheet must leave the others' parts untouched.
+            var copy = Fixtures.Copy("book.xlsx");
+            try
+            {
+                var w = new Workbook(OpcPackage.Open(copy));
+                var untouchedPart = w.Sheets[2].PartName;
+                var before = w.Package.Read(untouchedPart);
+                w.Sheets[0].Set("A2", "Subscriptions");
+                w.Save(copy);
+                var again = new Workbook(OpcPackage.Open(copy));
+                s.Equal("the edited sheet changed", "Subscriptions", again.Sheets[0].Read("A2").Display);
+                s.Bytes("a sheet nobody edited is byte for byte", before, again.Package.Read(untouchedPart));
+                s.Equal("the other sheet still reads", "Seat", again.Sheets[1].Read("A2").Display);
+            }
+            finally { try { File.Delete(copy); } catch { } }
+        }
+
         return s;
     }
 

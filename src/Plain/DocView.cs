@@ -5,6 +5,7 @@ using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Media;
 using Plain.Core;
+using Search = Plain.Core.Search;
 
 namespace Plain;
 
@@ -13,7 +14,7 @@ namespace Plain;
 /// matching Word's pagination needs Word's own fonts and line breaking; the status bar says so rather than pretending.
 /// What it does do is let you fix the words without touching anything else in the file, and show a table as a table.
 /// </summary>
-public sealed class DocView : Grid
+public sealed class DocView : Grid, IFindable
 {
     private readonly Document _doc;
     private readonly ObservableCollection<object> _rows = new();
@@ -28,7 +29,7 @@ public sealed class DocView : Grid
         _doc = doc;
         BuildRows();
 
-        var list = new ItemsControl
+        _list = new ItemsControl
         {
             ItemsSource = _rows,
             Margin = new Thickness(44, 26, 44, 60),
@@ -37,20 +38,63 @@ public sealed class DocView : Grid
             ItemTemplateSelector = new RowTemplates(),
         };
         // One shared size scope keeps a table's columns lined up from one row to the next.
-        list.SetValue(Grid.IsSharedSizeScopeProperty, true);
-        list.SetValue(VirtualizingStackPanel.IsVirtualizingProperty, true);
-        list.SetValue(VirtualizingStackPanel.VirtualizationModeProperty, VirtualizationMode.Recycling);
+        _list.SetValue(Grid.IsSharedSizeScopeProperty, true);
+        _list.SetValue(VirtualizingStackPanel.IsVirtualizingProperty, true);
+        _list.SetValue(VirtualizingStackPanel.VirtualizationModeProperty, VirtualizationMode.Recycling);
 
-        var scroller = new ScrollViewer
+        _scroller = new ScrollViewer
         {
-            Content = list,
+            Content = _list,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
             Background = App.B("Surface"),
             CanContentScroll = false,
             Focusable = false,
         };
-        Children.Add(scroller);
+        Children.Add(_scroller);
+    }
+
+    private readonly ItemsControl _list;
+    private readonly ScrollViewer _scroller;
+    private IReadOnlyList<Search.BlockHit> _hits = Array.Empty<Search.BlockHit>();
+
+    public int FindAll(string term)
+    {
+        _hits = Search.InDocument(_doc, term);
+        return _hits.Count;
+    }
+
+    public string Reveal(int index)
+    {
+        if (index < 0 || index >= _hits.Count) return "";
+        var line = Find(_hits[index].Block);
+        if (line is null) return "";
+
+        // Work out which row holds the block, then scroll roughly there so the virtualized panel builds it,
+        // and only then ask the realized container to bring itself fully into view.
+        object? row = _rows.FirstOrDefault(r => r == line || (r is TableRow t && t.Cells.Contains(line)));
+        if (row is null) return "";
+        int position = _rows.IndexOf(row);
+
+        _scroller.ScrollToVerticalOffset(_scroller.ExtentHeight * position / Math.Max(1, _rows.Count));
+        _scroller.UpdateLayout();
+        if (_list.ItemContainerGenerator.ContainerFromItem(row) is FrameworkElement container)
+        {
+            container.BringIntoView();
+            var box = FirstTextBox(container);
+            box?.Focus();
+            box?.SelectAll();
+        }
+        return $"block {_hits[index].Block}";
+    }
+
+    private static TextBox? FirstTextBox(DependencyObject root)
+    {
+        if (root is TextBox box) return box;
+        int count = VisualTreeHelper.GetChildrenCount(root);
+        for (int i = 0; i < count; i++)
+            if (FirstTextBox(VisualTreeHelper.GetChild(root, i)) is { } found) return found;
+        return null;
     }
 
     /// <summary>Group the document's blocks so that the cells of one table row become one item.</summary>

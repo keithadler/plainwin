@@ -9,7 +9,7 @@ namespace Plain;
 /// A deck as a rail of slides and one slide's text, editable. Plain does not draw shapes, pictures or diagrams; it
 /// shows what text is on the slide and says what else the slide is holding.
 /// </summary>
-public sealed class DeckView : Grid
+public sealed class DeckView : Grid, IFindable
 {
     private readonly Deck _deck;
     private readonly StackPanel _rail = new() { Margin = new Thickness(8, 10, 8, 10) };
@@ -161,6 +161,24 @@ public sealed class DeckView : Grid
     /// What to call a text frame. Some programs write a slide with no placeholder type at all, and calling every one
     /// of those "body" would be a guess; they are simply text.
     /// </summary>
+    private IReadOnlyList<Search.SlideHit> _hits = Array.Empty<Search.SlideHit>();
+
+    public int FindAll(string term)
+    {
+        _hits = Search.InDeck(_deck, term);
+        return _hits.Count;
+    }
+
+    public string Reveal(int index)
+    {
+        if (index < 0 || index >= _hits.Count) return "";
+        var hit = _hits[index];
+        var slide = _deck.Slides.FirstOrDefault(s => s.Number == hit.Slide);
+        if (slide is null) return "";
+        if (slide != _current) { _current = slide; BuildRail(); ShowSlide(slide); }
+        return hit.Where;
+    }
+
     private static string Describe(string placeholder) => placeholder switch
     {
         "title" or "ctrTitle" => "TITLE",

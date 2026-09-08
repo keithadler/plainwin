@@ -82,6 +82,29 @@ public static class OpcSuite
                 $"reported {after.Edited} parts rewritten after changing a cell");
         s.Equal("the counts still add up after an edit", after.Total, after.Edited + after.Kept);
 
+        // Finding text must reach every sheet, block and slide, and must look at formulas too.
+        var book = new Workbook(OpcPackage.Open(Fixtures.Path_("book.xlsx")!));
+        var cells = Search.InWorkbook(book, "seat");
+        s.Equal("a search reaches every sheet", 2, cells.Count);          // "Seat" on Detail, "seats" in Notes
+        s.Equal("a hit says where it is", "Detail!A2", cells[0].Where);
+        s.Equal("hits come back in reading order", "Notes!A3", cells[1].Where);
+        s.Check("search is not case sensitive", Search.InWorkbook(book, "LICENCES").Count == 1);
+        s.Equal("a search for nothing finds nothing", 0, Search.InWorkbook(book, "").Count);
+        s.Equal("a term that is not there finds nothing", 0, Search.InWorkbook(book, "zzz").Count);
+
+        var sheetBook = new Workbook(OpcPackage.Open(path));
+        s.Check("a formula is searchable by its function name", Search.InWorkbook(sheetBook, "sum").Count >= 1);
+
+        var doc = new Document(OpcPackage.Open(Fixtures.Path_("doc.docx")!));
+        var blocks = Search.InDocument(doc, "confidential");
+        s.Check("a document search finds the clause", blocks.Count >= 1);
+        s.Check("a document hit carries its text", blocks[0].Text.Length > 0);
+
+        var deck = new Deck(OpcPackage.Open(Fixtures.Path_("deck.pptx")!));
+        var slides = Search.InDeck(deck, "month-end");
+        s.Equal("a deck search finds the line", 1, slides.Count);
+        s.Equal("a deck hit says which slide", 2, slides[0].Slide);
+
         return s;
     }
 }

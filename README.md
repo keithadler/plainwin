@@ -4,7 +4,7 @@ Opens Word, Excel and PowerPoint files, edits the basics, and never damages what
 
 One window. No ribbon, no account, no cloud, no assistant. Open a file, change the words or the numbers, save. Everything in the file that Plain cannot draw is listed on the right and written back exactly as it was found.
 
-![Plain showing a workbook](docs/screenshots/work.png)
+![Plain showing a workbook](docs/screenshots/book.png)
 
 ## Download
 
@@ -26,9 +26,13 @@ Change one cell and only the parts that hold that cell are rewritten. The status
 
 ## What it edits
 
-- **Excel**: cell values, text and formulas, across the sheets in the workbook. Column widths and number formats come from the file, so the sheet looks like the one whoever made it laid out.
+- **Excel**: cell values, text and formulas, across every sheet in the workbook, with the sheets along the bottom where Excel puts them. Column widths and number formats come from the file, so the sheet looks like the one whoever made it laid out.
 - **Word**: the text of the body, with headings and tables shown as headings and tables.
 - **PowerPoint**: the text on each slide, picked from a rail of slides.
+
+**Find** with Ctrl+F, across the whole file: every sheet of a workbook, every block of a document, every slide of a deck. A spreadsheet search looks at the formula behind a cell as well as what it shows, so searching for `SUM` finds the cells that total something.
+
+**Save a copy** writes the file, with your changes, under a new name and leaves the original alone. The copy is a whole file, not a patch: everything Plain preserved is in it byte for byte.
 
 ## What it keeps but does not show
 
@@ -43,7 +47,10 @@ Charts, pivot tables, macros, SmartArt, pictures, embedded objects, tracked chan
 - **Mixed formatting inside one paragraph collapses when you retype it.** A paragraph with one bold word in the middle becomes one run in the first run's formatting. Plain says so in the status bar when it happens. Paragraphs you do not touch are untouched.
 - **No drawing.** Shapes, pictures and diagrams are kept, never rendered.
 - **No ZIP64.** A package using ZIP64 records is opened and re-saved unchanged, but not edited.
+- **It does not create files.** Plain opens what you already have. It never adds a part to a file, so there is nothing to make a new document with.
 - **Not a replacement for Office.** It is the thing to reach for when you need to change three words in a contract, or one number in a forecast, without a four gigabyte install.
+
+![Plain showing a deck](docs/screenshots/deck.png)
 
 ## Command line
 
