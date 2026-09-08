@@ -40,6 +40,14 @@ Charts, pivot tables, macros, SmartArt, pictures, embedded objects, tracked chan
 
 ![Plain showing a document](docs/screenshots/doc.png)
 
+## When things go wrong
+
+- **A damaged file gets a sentence, not a crash.** The readers are fuzzed against truncated, zeroed, overwritten and bit-flipped copies of every fixture; whatever comes back is either a working file or a clear refusal. No part is allowed to unpack to more than half a gigabyte, so a hostile file cannot exhaust the machine.
+- **A save cannot leave you with half a file.** The new contents go to a temporary file beside yours and only then take its place.
+- **A save keeps your file being your file.** Where the file already exists Plain replaces its contents rather than swapping in a new file with the old name, so who may read it, when it was created and where it sits all survive. A new file wearing the old name would quietly take whatever permissions the folder hands out.
+- **If something else changed the file while you had it open**, Plain says so and asks before writing over that.
+- **A read-only file** is refused with an explanation and a pointer to Save a copy, rather than a failure part-way through.
+
 ## Honest limits
 
 - **No page layout.** Matching Word's pagination needs Word's own fonts and line breaking. Plain shows a document as one scrolling column and says so in the status bar. If you need to see page breaks, you need Word.

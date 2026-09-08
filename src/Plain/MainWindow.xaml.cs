@@ -166,6 +166,23 @@ public partial class MainWindow : Window
     private void OnSave(object sender, RoutedEventArgs e)
     {
         if (_active is null) return;
+
+        if (_active.File.IsReadOnly())
+        {
+            MessageBox.Show(this,
+                $"{_active.Name} is marked read only, so Plain cannot write to it. \"Save a copy\" will write your changes somewhere else.",
+                "Plain", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        if (_active.File.ChangedOnDisk())
+        {
+            var answer = MessageBox.Show(this,
+                $"Something else has changed {_active.Name} since you opened it. Saving now would throw those changes away.\n\nSave anyway?",
+                "Plain", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+            if (answer != MessageBoxResult.Yes) return;
+        }
+
         try
         {
             var (total, edited, kept) = _active.File.Counts();

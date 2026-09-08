@@ -21,8 +21,33 @@ public static class Ns
 
 public static class Xml
 {
-    public static XDocument Parse(byte[] bytes) =>
-        XDocument.Parse(OpcPackage.DecodeUtf8(bytes), LoadOptions.PreserveWhitespace);
+    /// <summary>
+    /// Parse a part. A damaged file is a sentence someone can act on, not a stack trace, so the XML reader's own
+    /// complaint is turned into one here rather than at every call site.
+    /// </summary>
+    public static XDocument Parse(byte[] bytes)
+    {
+        try { return XDocument.Parse(OpcPackage.DecodeUtf8(bytes), LoadOptions.PreserveWhitespace); }
+        catch (XmlException ex)
+        {
+            throw new OpcPackage.PackageException(
+                $"Part of this file is damaged and could not be read (line {ex.LineNumber}: {ex.Message})");
+        }
+        catch (Exception ex) when (ex is ArgumentException or FormatException or InvalidOperationException)
+        {
+            throw new OpcPackage.PackageException("Part of this file is damaged and could not be read.");
+        }
+    }
+
+    /// <summary>
+    /// A whole number from an attribute, or null. Casting an attribute to int? throws on anything that is not a
+    /// number, and a damaged file puts anything anywhere, so nothing in Plain casts one directly.
+    /// </summary>
+    public static int? Int(XAttribute? attribute) =>
+        attribute is not null && int.TryParse(attribute.Value, System.Globalization.NumberStyles.Integer,
+            System.Globalization.CultureInfo.InvariantCulture, out var value) ? value : null;
+
+    public static int Int(XAttribute? attribute, int fallback) => Int(attribute) ?? fallback;
 
     /// <summary>Serialize without adding whitespace, with the standalone declaration Office writes.</summary>
     public static byte[] ToBytes(XDocument doc)

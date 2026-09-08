@@ -14,6 +14,8 @@ Every sheet of a workbook is reachable from a strip along the bottom, and each s
 
 `plain.exe`, the console twin: `info`, `parts`, `text`, `cells`, `get`, `set`, `roundtrip`, `selftest`.
 
+A damaged file produces a message rather than a crash: the readers are fuzzed against truncated, zeroed, overwritten and bit-flipped copies of every fixture, and no part may unpack to more than half a gigabyte. Saving replaces the file's contents rather than swapping a new file into its name, so its permissions and creation date survive; a file changed by something else while Plain had it open is noticed and asked about; a read-only file is refused with an explanation.
+
 Rows are indexed rather than scanned, so a sheet of twenty thousand rows draws any screen in under a millisecond and searches in 81 ms, where both used to walk the whole sheet for every cell.
 
 Set `PLAIN_SOFTWARE_RENDER=1` if the window comes up blank on a virtual machine or a remote desktop.

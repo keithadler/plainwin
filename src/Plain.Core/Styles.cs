@@ -27,7 +27,7 @@ public sealed class Styles
         int styleIndex = 0;
         foreach (var xf in doc.Root.Element(Ns.Sheet + "cellXfs")?.Elements(Ns.Sheet + "xf") ?? Enumerable.Empty<XElement>())
         {
-            int id = (int?)xf.Attribute("numFmtId") ?? 0;
+            int id = Xml.Int(xf.Attribute("numFmtId"), 0);
             string code = custom.TryGetValue(id, out var c) ? c : BuiltIn(id);
             if (code.Length > 0) _formats[styleIndex] = code;
             styleIndex++;

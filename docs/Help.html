@@ -23,7 +23,7 @@
 
 <h1>Plain for Windows <small>Help</small></h1>
 <p class="muted">Opens Word, Excel and PowerPoint files, edits the basics, and never damages what it doesn't understand.</p>
-<nav><a href="#start">Getting started</a><a href="#promise">The promise</a><a href="#excel">Spreadsheets</a><a href="#word">Documents</a><a href="#deck">Decks</a><a href="#keys">Keyboard</a><a href="#limits">Honest limits</a><a href="#cli">Command line</a></nav>
+<nav><a href="#start">Getting started</a><a href="#promise">The promise</a><a href="#excel">Spreadsheets</a><a href="#word">Documents</a><a href="#deck">Decks</a><a href="#keys">Keyboard</a><a href="#safe">When something goes wrong</a><a href="#limits">Honest limits</a><a href="#cli">Command line</a></nav>
 
 <h2 id="start">Getting started</h2>
 <p>There is nothing to install and nothing to sign in to. Put the exe wherever you like and double-click it, or drop a file onto the window, or right-click a file in Explorer and open it with Plain.</p>
@@ -59,6 +59,11 @@
 <tr><td><kbd>Esc</kbd></td><td>Give up on the cell you are editing, or close Find</td></tr>
 </table>
 <p>In a spreadsheet, Find looks at the formula behind a cell as well as at what it shows, so searching for <code>SUM</code> finds the cells that total something.</p>
+
+<h2 id="safe">When something goes wrong</h2>
+<p>A file that arrived damaged gets a sentence explaining what is wrong with it, never a crash. Plain's readers are tested against thousands of broken copies of real files: truncated downloads, zeroed blocks, flipped bits.</p>
+<p>Saving writes the new contents beside your file first and only then puts them in its place, so a save that is interrupted leaves the original whole. Where the file already exists Plain replaces its contents rather than swapping in a new file with the same name, so the permissions on it, the date it was created and its place in the folder all survive.</p>
+<p>If another program changed the file while you had it open, Plain notices and asks before writing over that. If Windows has the file marked read only, it says so and points you at <b>Save a copy</b>.</p>
 
 <h2 id="limits">Honest limits</h2>
 <ul>

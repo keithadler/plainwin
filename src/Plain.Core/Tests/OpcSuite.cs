@@ -105,6 +105,35 @@ public static class OpcSuite
         s.Equal("a deck search finds the line", 1, slides.Count);
         s.Equal("a deck hit says which slide", 2, slides[0].Slide);
 
+        // Saving must leave the file it wrote to being the same file, not a new one wearing its name.
+        var scratch = Fixtures.Copy("sheet.xlsx");
+        try
+        {
+            var created = File.GetCreationTimeUtc(scratch);
+            var wasOnDisk = File.ReadAllBytes(scratch);
+            var again = PlainFile.Open(scratch);
+            s.Check("a file just opened has not changed on disk", !again.ChangedOnDisk());
+            s.Check("a normal file is not read only", !again.IsReadOnly());
+
+            again.Workbook!.Sheets[0].Set("A1", "kept");
+            again.Save();
+            s.Check("the saved file is still there", File.Exists(scratch));
+            s.Check("no temporary file is left behind", !File.Exists(scratch + ".plain-tmp"));
+            // Replacing a file in place rather than swapping a new one in is a Windows guarantee; other systems
+            // record creation time differently, so only Windows is held to it.
+            if (OperatingSystem.IsWindows())
+                s.Equal("the file keeps the moment it was created", created, File.GetCreationTimeUtc(scratch));
+            else
+                s.Check("creation time is only checked on Windows", true);
+            s.Check("the contents did change", !File.ReadAllBytes(scratch).AsSpan().SequenceEqual(wasOnDisk));
+            s.Check("saving updates what Plain remembers about the file", !again.ChangedOnDisk());
+
+            // Something else writing to the file must be noticed.
+            File.SetLastWriteTimeUtc(scratch, DateTime.UtcNow.AddMinutes(5));
+            s.Check("a change made by something else is noticed", again.ChangedOnDisk());
+        }
+        finally { try { File.Delete(scratch); } catch { } }
+
         return s;
     }
 }

@@ -108,6 +108,12 @@ public sealed class OpcPackage
             if (!zip64) throw new PackageException("This package uses ZIP64 records Plain could not read.");
         }
 
+        // A damaged directory can claim any number of parts; a real Office file has hundreds, not millions.
+        if (entryCount < 0 || entryCount > 200_000)
+            throw new PackageException("This file's directory claims an impossible number of parts; it is damaged.");
+        if (cdOffset < 0 || cdOffset > raw.Length)
+            throw new PackageException("This file's directory is not where the file says it is; it is damaged.");
+
         var pkg = new OpcPackage(raw, zip64) { _eocdOffset = eocd, _eocdLength = 22 + commentLen };
 
         int p = (int)cdOffset;
@@ -125,6 +131,12 @@ public sealed class OpcPackage
             int extraLen = U16(raw, p + 30);
             int cmtLen = U16(raw, p + 32);
             long localOffset = U32(raw, p + 42);
+
+            // The record says how long its own name, extra field and comment are; a damaged one can say more than
+            // the file holds, and reading the name would then run off the end.
+            if ((long)p + 46 + nameLen + extraLen + cmtLen > raw.Length)
+                throw new PackageException("This file's directory runs past the end of the file; it is damaged.");
+
             string name = Encoding.UTF8.GetString(raw, p + 46, nameLen);
 
             bool entryZip64 = false;
@@ -233,6 +245,9 @@ public sealed class OpcPackage
 
     public void WriteText(string name, string content) => Write(name, new UTF8Encoding(false).GetBytes(content));
 
+    /// <summary>No single part may unpack to more than this. A damaged or hostile file cannot exhaust the machine.</summary>
+    private const long MaxPartSize = 512L * 1024 * 1024;
+
     private byte[] Inflate(Part part)
     {
         if (part.Method == 0)
@@ -243,21 +258,69 @@ public sealed class OpcPackage
         }
         if (part.Method != 8) throw new PackageException($"The part \"{part.Name}\" uses a compression method Plain does not read ({part.Method}).");
 
-        using var input = new MemoryStream(_raw, part.DataOffset, (int)part.CompressedSize, writable: false);
-        using var deflate = new DeflateStream(input, CompressionMode.Decompress);
-        using var output = new MemoryStream(part.UncompressedSize > 0 && part.UncompressedSize < int.MaxValue ? (int)part.UncompressedSize : 0);
-        deflate.CopyTo(output);
-        return output.ToArray();
+        try
+        {
+            using var input = new MemoryStream(_raw, part.DataOffset, (int)part.CompressedSize, writable: false);
+            using var deflate = new DeflateStream(input, CompressionMode.Decompress);
+
+            // Trust the recorded size only as a hint for how much room to take; never as a promise.
+            int hint = part.UncompressedSize > 0 && part.UncompressedSize <= 8 * 1024 * 1024 ? (int)part.UncompressedSize : 0;
+            using var output = new MemoryStream(hint);
+            var buffer = new byte[81920];
+            int read;
+            while ((read = deflate.Read(buffer, 0, buffer.Length)) > 0)
+            {
+                if (output.Length + read > MaxPartSize)
+                    throw new PackageException($"The part \"{part.Name}\" unpacks to more than half a gigabyte; Plain will not open it.");
+                output.Write(buffer, 0, read);
+            }
+            return output.ToArray();
+        }
+        catch (InvalidDataException)
+        {
+            throw new PackageException($"The part \"{part.Name}\" is damaged and could not be unpacked.");
+        }
+        catch (OutOfMemoryException)
+        {
+            throw new PackageException($"The part \"{part.Name}\" claims to be too large to unpack.");
+        }
     }
 
     // ---------- writing ----------
 
+    /// <summary>
+    /// Write the file. The bytes go to a temporary file beside it first and only then take its place, so a save that
+    /// is interrupted leaves the original whole rather than half written.
+    ///
+    /// Where the file already exists this uses Replace rather than Move, because Replace puts the new contents into
+    /// the existing file and keeps what belongs to it: who may read it, when it was created, where it sits. Move
+    /// would leave a brand new file wearing the old one's name, with whatever permissions the folder happened to
+    /// hand out. For a program whose whole promise is not damaging your file, that difference matters.
+    /// </summary>
     public void Save(string path)
     {
         var bytes = ToBytes();
         var tmp = path + ".plain-tmp";
-        File.WriteAllBytes(tmp, bytes);
-        File.Move(tmp, path, overwrite: true);
+        try
+        {
+            File.WriteAllBytes(tmp, bytes);
+            if (File.Exists(path))
+            {
+                try { File.Replace(tmp, path, destinationBackupFileName: null); }
+                catch (Exception ex) when (ex is PlatformNotSupportedException or IOException or UnauthorizedAccessException)
+                {
+                    // Replace needs both files on one volume and a filesystem that supports it; falling back to a
+                    // move still leaves the file correct, only without the original's own permissions.
+                    File.Move(tmp, path, overwrite: true);
+                }
+            }
+            else File.Move(tmp, path);
+        }
+        finally
+        {
+            if (File.Exists(tmp)) { try { File.Delete(tmp); } catch { } }
+        }
+        SourcePath = path;
     }
 
     /// <summary>The whole file as bytes. Untouched parts are copied from the original byte for byte.</summary>

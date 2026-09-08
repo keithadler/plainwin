@@ -317,7 +317,7 @@ public sealed class Sheet
             var data = Data;
             var index = new Dictionary<int, XElement>();
             foreach (var row in data.Elements(Ns.Sheet + "row"))
-                if ((int?)row.Attribute("r") is { } number) index[number] = row;
+                if (Xml.Int(row.Attribute("r")) is { } number) index[number] = row;
             _rowIndex = index;
             return index;
         }
@@ -373,7 +373,7 @@ public sealed class Sheet
             default:
                 raw = v?.Value ?? "";
                 kind = raw.Length == 0 ? CellKind.Empty : CellKind.Number;
-                display = _book.Styles.Format(raw, (int?)c.Attribute("s") ?? 0);
+                display = _book.Styles.Format(raw, Xml.Int(c.Attribute("s"), 0));
                 break;
         }
 
@@ -447,7 +447,7 @@ public sealed class Sheet
         if (row is null)
         {
             row = new XElement(Ns.Sheet + "row", new XAttribute("r", reference.Row));
-            var after = Data.Elements(Ns.Sheet + "row").LastOrDefault(r => ((int?)r.Attribute("r") ?? 0) < reference.Row);
+            var after = Data.Elements(Ns.Sheet + "row").LastOrDefault(r => Xml.Int(r.Attribute("r"), 0) < reference.Row);
             if (after is not null) after.AddAfterSelf(row); else Data.AddFirst(row);
             RowIndex[reference.Row] = row;
         }
