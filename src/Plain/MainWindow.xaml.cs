@@ -354,7 +354,7 @@ public partial class MainWindow : Window
         KeepBtn.Content = $"Preserved  {kept.Count}";
         RailFoot.Text = _active.File.Kind switch
         {
-            FileKind.Spreadsheet => "Editing a cell clears the values Excel cached beside formulas, so no total on screen is out of date.",
+            FileKind.Spreadsheet => "Change a cell and the totals that read it lose their stored value until Excel works them out again. Every other total keeps its number.",
             FileKind.Document => "Tracked changes, comments, headers and footers stay in the file. Plain shows the text of the body.",
             _ => "Shapes Plain cannot draw are held in place. Editing a title never moves them.",
         };

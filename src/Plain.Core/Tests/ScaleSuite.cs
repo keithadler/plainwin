@@ -24,6 +24,14 @@ public static class ScaleSuite
         // Warm the sheet so the XML parse is not counted against the reads.
         _ = sheet.Read("A1");
 
+        // The fixture must be a real spreadsheet, with formulas that carry the value Excel worked out. A generator
+        // that quietly produced errors here once made this whole suite measure the wrong thing.
+        s.Equal("the total column holds a formula", "=C2*D2", sheet.Read("E2").Formula);
+        s.Equal("the formula carries its value", CellKind.Formula, sheet.Read("E2").Kind);
+        s.Check("no cell in the sample is an error",
+                Enumerable.Range(2, 40).All(r => sheet.Read(new CellRef(5, r)).Kind != CellKind.Error),
+                "the fixture's formulas did not evaluate when it was made");
+
         var sw = Stopwatch.StartNew();
         int last = extent.Row;
         for (int r = last - 25; r < last; r++)
@@ -55,6 +63,25 @@ public static class ScaleSuite
         // An edit must invalidate what was remembered.
         sheet.Set(new CellRef(1, extent.Row + 5), "past the end");
         s.Equal("the extent grows after an edit past it", extent.Row + 5, sheet.Extent.Row);
+
+        // Working out what went stale across thousands of formulas must stay quick, and must stay narrow.
+        var work = Fixtures.Copy("large.xlsx");
+        try
+        {
+            var w = new Workbook(OpcPackage.Open(work));
+            var big = w.Sheets[0];
+            string farAway = big.Read("E4000").Raw;
+            big.Set("C2", "99");
+            sw.Restart();
+            w.Save(work);
+            sw.Stop();
+            s.Check($"saving a large sheet stays quick ({sw.ElapsedMilliseconds} ms)", sw.ElapsedMilliseconds < 5000);
+
+            var after = new Workbook(OpcPackage.Open(work)).Sheets[0];
+            s.Equal("the total on the edited row is cleared", "", after.Read("E2").Raw);
+            s.Equal("a total thousands of rows away keeps its value", farAway, after.Read("E4000").Raw);
+        }
+        finally { try { File.Delete(work); } catch { } }
 
         return s;
     }

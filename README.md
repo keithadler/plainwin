@@ -82,6 +82,10 @@ Measured on a Windows 11 ARM64 virtual machine, on a sheet of 20,000 rows with a
 
 The checks include a guard against the code going quadratic again, because it was: reading a cell used to scan every row, so the bottom of a large sheet took 286 ms a screen and a search took twenty seconds.
 
+## Help
+
+[docs/Help.html](docs/Help.html) covers the lot: what it edits, what it keeps, the keyboard, and the honest limits.
+
 ## Privacy
 
 Nothing leaves your PC. There is no account, no telemetry, no update check, no network code of any kind. See [PRIVACY.md](PRIVACY.md).

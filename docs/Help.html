@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Plain for Windows Help</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { color-scheme: light dark; --fg: #1b1a17; --muted: #5e5c53; --bg: #fdfdfb; --card: #f2f1ed; --accent: #1f6fb2; --keep: #9a6b15; --line: #dedcd5; }
+  @media (prefers-color-scheme: dark) { :root { --fg: #edebe3; --muted: #a7a49a; --bg: #1e1e1b; --card: #2e2d27; --accent: #6fb0e8; --keep: #e0ae52; --line: #3a3932; } }
+  body { margin: 0; font: 15px/1.55 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; color: var(--fg); background: var(--bg); }
+  main { max-width: 760px; margin: 0 auto; padding: 40px 24px 80px; }
+  h1 { font-size: 30px; margin: 0 0 4px; } h1 small { display: block; font-size: 15px; font-weight: 400; color: var(--muted); }
+  h2 { font-size: 20px; margin: 36px 0 10px; padding-top: 12px; border-top: 1px solid var(--line); }
+  .muted { color: var(--muted); }
+  code, pre { font: 13px "Cascadia Mono", Consolas, ui-monospace, monospace; }
+  pre { background: var(--card); padding: 12px 14px; border-radius: 8px; overflow-x: auto; }
+  .card { background: var(--card); border-radius: 10px; padding: 14px 16px; margin: 12px 0; }
+  .keep { border-left: 4px solid var(--keep); }
+  nav a { margin-right: 14px; color: var(--accent); text-decoration: none; } a { color: var(--accent); }
+  table { border-collapse: collapse; width: 100%; margin: 8px 0 16px; }
+  td, th { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 13px; }
+  kbd { font: 12px "Cascadia Mono", Consolas, monospace; background: var(--card); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 1px 5px; }
+</style></head>
+<body><main>
+
+<h1>Plain for Windows <small>Help</small></h1>
+<p class="muted">Opens Word, Excel and PowerPoint files, edits the basics, and never damages what it doesn't understand.</p>
+<nav><a href="#start">Getting started</a><a href="#promise">The promise</a><a href="#excel">Spreadsheets</a><a href="#word">Documents</a><a href="#deck">Decks</a><a href="#keys">Keyboard</a><a href="#limits">Honest limits</a><a href="#cli">Command line</a></nav>
+
+<h2 id="start">Getting started</h2>
+<p>There is nothing to install and nothing to sign in to. Put the exe wherever you like and double-click it, or drop a file onto the window, or right-click a file in Explorer and open it with Plain.</p>
+<p>Several files can be open at once, each on its own tab along the top. <b>Save</b> writes the file back where it came from. <b>Save a copy</b> writes it somewhere new and leaves the original alone.</p>
+
+<h2 id="promise">The promise, and what it means for your file</h2>
+<p>Most programs that open a <code>.docx</code> read it into their own idea of a document and write that back out. Anything their idea has no room for is quietly gone. Plain works the other way round: it opens the file as the package of parts it really is, and writes every part you did not edit back as the exact bytes it found.</p>
+<div class="card keep"><b>Open a file, save it without changing anything, and you get the same file back, byte for byte.</b> Change one cell and only the parts holding that cell are rewritten. The strip along the bottom of the window counts it every time you save.</div>
+<p>The panel down the right names everything in the file that Plain is keeping but cannot draw: charts, pivot tables, macros, pictures, diagrams, tracked changes, comments, headers, footers, slide layouts, themes. Each one shows its size and what it is. None of them is touched.</p>
+
+<h2 id="excel">Spreadsheets</h2>
+<p>Click a cell and type. What you type is read the way Excel reads it: a leading <code>=</code> makes a formula, something that looks like a number is a number, anything else is text. <kbd>Enter</kbd> moves down, <kbd>Tab</kbd> moves right, <kbd>Delete</kbd> empties a cell, <kbd>F2</kbd> edits one without clearing it first. The bar above the grid shows and edits the selected cell.</p>
+<p>Every sheet in the workbook is on the strip along the bottom. Column widths and number formats come from the file, so the sheet looks the way whoever made it laid it out.</p>
+<p><b>About totals.</b> Plain does not work out what a formula comes to. What it does instead is read which cells each formula depends on. When you change a cell, the formulas that read it lose the value Excel had worked out, and so do the formulas that read those, all the way up the chain and across sheets. Those cells show the formula until Excel or LibreOffice next opens the file and works them out properly. Every other total keeps its number. So changing one label does not empty the sheet, and no number on screen is one that has quietly stopped being true.</p>
+
+<h2 id="word">Documents</h2>
+<p>Click any line and type. Headings look like headings and tables look like tables, with their columns lined up.</p>
+<p>Plain shows a document as one scrolling column with no page breaks, because laying pages out the way Word does needs Word's own fonts and line breaking, and guessing would be worse than not pretending. The strip along the bottom says so.</p>
+<p>If you retype a paragraph that had several different formats inside it, say one bold word in the middle, that paragraph comes out in the first format throughout. Plain says so at the bottom of the window when it happens. Paragraphs you do not touch are not touched.</p>
+
+<h2 id="deck">Decks</h2>
+<p>Pick a slide from the rail on the left and edit its text. Pictures, diagrams and shapes are not drawn and never move; they are held in the file exactly where they were.</p>
+
+<h2 id="keys">Keyboard</h2>
+<table>
+<tr><th>Key</th><th>What it does</th></tr>
+<tr><td><kbd>Ctrl</kbd>+<kbd>O</kbd></td><td>Open a file</td></tr>
+<tr><td><kbd>Ctrl</kbd>+<kbd>S</kbd></td><td>Save</td></tr>
+<tr><td><kbd>Ctrl</kbd>+<kbd>Z</kbd></td><td>Undo, as many steps back as you have made</td></tr>
+<tr><td><kbd>Ctrl</kbd>+<kbd>F</kbd></td><td>Find, across every sheet, block or slide in the file</td></tr>
+<tr><td><kbd>Ctrl</kbd>+<kbd>W</kbd></td><td>Close the file you are on</td></tr>
+<tr><td><kbd>F2</kbd></td><td>Edit the selected cell, keeping what is in it</td></tr>
+<tr><td><kbd>Esc</kbd></td><td>Give up on the cell you are editing, or close Find</td></tr>
+</table>
+<p>In a spreadsheet, Find looks at the formula behind a cell as well as at what it shows, so searching for <code>SUM</code> finds the cells that total something.</p>
+
+<h2 id="limits">Honest limits</h2>
+<ul>
+<li><b>No page layout.</b> If you need to see where the pages break, you need Word.</li>
+<li><b>No formula evaluation.</b> See "About totals" above.</li>
+<li><b>It does not create files.</b> Plain opens what you already have and never adds a part to a file, so there is nothing to start a new document with.</li>
+<li><b>It does not draw shapes.</b> Pictures, charts and diagrams are kept, listed and never rendered.</li>
+<li><b>Mixed formatting inside one paragraph collapses if you retype that paragraph.</b></li>
+<li><b>Password-protected files are refused</b> rather than half-opened.</li>
+<li><b>A package using ZIP64 records</b> opens and re-saves unchanged, but will not be edited.</li>
+<li><b>It is not a replacement for Office.</b> It is what to reach for when you need to change three words in a contract without a four gigabyte install.</li>
+</ul>
+<div class="card">If the window comes up blank on a virtual machine or a remote desktop, start it with <code>PLAIN_SOFTWARE_RENDER=1</code> set. Some virtual displays cannot present what Plain draws, and that setting draws it on the processor instead.</div>
+
+<h2 id="cli">Command line</h2>
+<p><code>plain.exe</code> is the same program as a console app, for scripts.</p>
+<pre>plain info &lt;file&gt;                what the file is, and what Plain keeps untouched
+plain parts &lt;file&gt; [--json]      every part, and whether Plain shows it or preserves it
+plain text &lt;file&gt; [--numbered]   the text, as plain text
+plain cells &lt;file&gt; [sheet]       every filled cell, as reference&lt;tab&gt;value
+plain get &lt;file&gt; &lt;ref&gt;           one cell, or one block by number
+plain set &lt;file&gt; &lt;ref&gt; &lt;value&gt;   change one cell or block, then save in place
+plain roundtrip &lt;file&gt;...        prove a save changes nothing: byte compares the result
+plain selftest                   run the built-in checks</pre>
+<p>Exit codes: 0 fine, 1 something to look at, 2 problem, 64 usage.</p>
+
+<h2>Privacy</h2>
+<p>There is no network code in Plain at all. No account, no telemetry, no update check, nothing to turn off. It reads the file you open and writes the file you save, and keeps no settings, no recent-files list and no cache.</p>
+<p>Free, MIT, built by Keith Adler; more at <a href="https://keithadler.github.io/">keithadler.github.io</a>.</p>
+
+</main></body></html>

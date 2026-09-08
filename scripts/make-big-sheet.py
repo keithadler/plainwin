@@ -6,7 +6,8 @@ rows = int(sys.argv[1]) if len(sys.argv) > 1 else 20000
 print('<?xml version="1.0" encoding="UTF-8"?>')
 print('<office:document xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" '
       'xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" '
-      'xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" office:version="1.2" '
+      'xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" '
+      'xmlns:of="urn:oasis:names:tc:opendocument:xmlns:of:1.2" office:version="1.2" '
       'office:mimetype="application/vnd.oasis.opendocument.spreadsheet">')
 print('<office:body><office:spreadsheet><table:table table:name="Rows">'
       '<table:table-column table:number-columns-repeated="5"/>')
