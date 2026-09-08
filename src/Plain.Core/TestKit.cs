@@ -41,6 +41,7 @@ public static class SelfTest
     private static readonly (string Name, Func<Suite> Run)[] All =
     {
         ("opc", OpcSuite.Run),
+        ("refs", RefsSuite.Run),
         ("sheet", SheetSuite.Run),
         ("doc", DocSuite.Run),
         ("deck", DeckSuite.Run),

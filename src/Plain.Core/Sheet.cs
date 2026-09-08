@@ -116,9 +116,100 @@ public sealed class Workbook
         _workbookDirty = true;
     }
 
+    private readonly Dictionary<Sheet, HashSet<CellRef>> _changed = new();
+
+    internal void NoteChanged(Sheet sheet, CellRef cell)
+    {
+        if (!_changed.TryGetValue(sheet, out var set)) _changed[sheet] = set = new HashSet<CellRef>();
+        set.Add(cell);
+    }
+
+    /// <summary>
+    /// Work out which cached totals an edit made untrue, and clear only those. A formula that reads an edited cell is
+    /// stale, and so is a formula that reads that formula, all the way up the chain. Everything else keeps the value
+    /// Excel worked out, so changing one label in a budget does not empty the budget of its numbers.
+    /// </summary>
+    private void ClearStaleCaches()
+    {
+        if (_changed.Count == 0) return;
+
+        var byName = new Dictionary<string, int>(StringComparer.CurrentCultureIgnoreCase);
+        for (int i = 0; i < _sheets.Count; i++) byName[_sheets[i].Name] = i;
+
+        var dirty = new Dictionary<int, HashSet<CellRef>>();
+        void MarkDirty(int sheet, CellRef cell)
+        {
+            if (!dirty.TryGetValue(sheet, out var set)) dirty[sheet] = set = new HashSet<CellRef>();
+            set.Add(cell);
+        }
+        foreach (var (sheet, cells) in _changed)
+        {
+            int index = _sheets.IndexOf(sheet);
+            foreach (var cell in cells) MarkDirty(index, cell);
+        }
+
+        // Read every formula once, with the cells it depends on already worked out.
+        var formulas = new List<(int Sheet, CellRef Ref, RefRange[] Reads)>();
+        for (int i = 0; i < _sheets.Count; i++)
+            foreach (var (reference, formula) in _sheets[i].Formulas())
+                formulas.Add((i, reference, Refs.Parse(formula).ToArray()));
+
+        var stale = new HashSet<(int, CellRef)>();
+        // Each pass can only make more cells stale, so this settles in at most one pass per formula.
+        for (int pass = 0; pass <= formulas.Count; pass++)
+        {
+            bool grew = false;
+            foreach (var (sheet, reference, reads) in formulas)
+            {
+                if (stale.Contains((sheet, reference))) continue;
+                if (!ReadsAnything(reads, sheet, byName, dirty)) continue;
+                stale.Add((sheet, reference));
+                MarkDirty(sheet, reference);
+                grew = true;
+            }
+            if (!grew) break;
+        }
+
+        for (int i = 0; i < _sheets.Count; i++)
+        {
+            var cells = stale.Where(x => x.Item1 == i).Select(x => x.Item2).ToHashSet();
+            if (cells.Count > 0) _sheets[i].ClearCached(cells);
+        }
+        _changed.Clear();
+    }
+
+    private static bool ReadsAnything(RefRange[] reads, int ownSheet,
+                                      Dictionary<string, int> byName,
+                                      Dictionary<int, HashSet<CellRef>> dirty)
+    {
+        foreach (var range in reads)
+        {
+            int sheet = ownSheet;
+            if (range.Sheet is not null && !byName.TryGetValue(range.Sheet, out sheet)) continue;
+            if (!dirty.TryGetValue(sheet, out var cells) || cells.Count == 0) continue;
+
+            long width = (long)range.ColumnMax - range.ColumnMin + 1;
+            long height = (long)range.RowMax - range.RowMin + 1;
+            if (width * height <= 64)
+            {
+                // A small range: ask the set about each of its cells.
+                for (int c = range.ColumnMin; c <= range.ColumnMax; c++)
+                    for (int r = range.RowMin; r <= range.RowMax; r++)
+                        if (cells.Contains(new CellRef(c, r))) return true;
+            }
+            else
+            {
+                // A big one, a whole column say: walk the handful of changed cells instead.
+                foreach (var cell in cells) if (range.Contains(cell)) return true;
+            }
+        }
+        return false;
+    }
+
     /// <summary>Write every part Plain changed back into the package. Nothing else is touched.</summary>
     public void Flush()
     {
+        ClearStaleCaches();
         foreach (var sheet in _sheets) sheet.Flush();
         if (_sstDirty && _sst is not null) { _pkg.Write("xl/sharedStrings.xml", Xml.ToBytes(_sst)); _sstDirty = false; }
         if (_workbookDirty && _workbookDoc is not null) { _pkg.Write(WorkbookPart, Xml.ToBytes(_workbookDoc)); _workbookDirty = false; }
@@ -316,6 +407,7 @@ public sealed class Sheet
             _book.RequestFullRecalculation();
         }
         _dirty = true;
+        _book.NoteChanged(this, reference);
     }
 
     public void Set(string reference, string typed) => Set(CellRef.Parse(reference), typed);
@@ -342,28 +434,47 @@ public sealed class Sheet
         return cell;
     }
 
-    /// <summary>
-    /// Drop the value Excel last cached beside each formula on this sheet. Plain does not evaluate formulas, so once
-    /// a cell on the sheet changes, every cached total near it is a number that may no longer be true. A formula with
-    /// no cached value forces whatever opens the file to work it out, which is the only way to be sure the number on
-    /// screen is the right one. Cells without a formula keep their values.
-    /// </summary>
-    private void DropStaleCachedValues()
+    /// <summary>Every formula on this sheet, with the cell it sits in. Used to work out what an edit made untrue.</summary>
+    internal IReadOnlyList<(CellRef Ref, string Formula)> Formulas()
     {
+        var list = new List<(CellRef, string)>();
         foreach (var row in Data.Elements(Ns.Sheet + "row"))
             foreach (var c in row.Elements(Ns.Sheet + "c"))
-                if (c.Element(Ns.Sheet + "f") is not null)
-                {
-                    c.Elements(Ns.Sheet + "v").Remove();
-                    // A cached string result is typed on the cell; without the value the type is meaningless.
-                    if ((string?)c.Attribute("t") == "str") c.Attribute("t")!.Remove();
-                }
+            {
+                var f = c.Element(Ns.Sheet + "f");
+                if (f is null) continue;
+                if (CellRef.TryParse((string?)c.Attribute("r") ?? "", out var reference)) list.Add((reference, f.Value));
+            }
+        return list;
+    }
+
+    /// <summary>
+    /// Drop the value Excel last cached beside the given formulas. Plain does not evaluate formulas, so a cached total
+    /// that depends on an edited cell is a number that may no longer be true; with no cached value, whatever opens the
+    /// file has to work it out. Formulas nothing touched keep their values, and so does every cell without a formula.
+    /// </summary>
+    internal bool ClearCached(HashSet<CellRef> cells)
+    {
+        if (cells.Count == 0) return false;
+        bool any = false;
+        foreach (var row in Data.Elements(Ns.Sheet + "row"))
+            foreach (var c in row.Elements(Ns.Sheet + "c"))
+            {
+                if (c.Element(Ns.Sheet + "f") is null) continue;
+                if (!CellRef.TryParse((string?)c.Attribute("r") ?? "", out var reference) || !cells.Contains(reference)) continue;
+                if (c.Element(Ns.Sheet + "v") is null) continue;
+                c.Elements(Ns.Sheet + "v").Remove();
+                // A cached string result is typed on the cell; without the value the type means nothing.
+                if ((string?)c.Attribute("t") == "str") c.Attribute("t")!.Remove();
+                any = true;
+            }
+        if (any) _dirty = true;
+        return any;
     }
 
     internal void Flush()
     {
         if (!_dirty || _doc is null) return;
-        DropStaleCachedValues();
         _book.Package.Write(PartName, Xml.ToBytes(_doc));
         _dirty = false;
     }

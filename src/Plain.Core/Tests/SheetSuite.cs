@@ -58,10 +58,9 @@ public static class SheetSuite
             s.Check("the workbook asks Excel to recalculate",
                     again.Package.ReadText("xl/workbook.xml").Contains("fullCalcOnLoad"));
 
-            // A cached total next to an edited cell would be a wrong number on screen, so the caches must be gone.
-            var sheetXml0 = again.Package.ReadText(s2.PartName);
-            s.Check("no formula keeps a cached value after an edit", !HasCachedFormulaValue(sheetXml0),
-                    "a formula cell still carries the value Excel cached before the edit");
+            // A cached total that depends on an edited cell would be a wrong number on screen, so it must be gone.
+            s.Equal("a total that reads the edited cell loses its cached value", "", s2.Read("B5").Raw);
+            s.Check("that total keeps its formula", (s2.Read("B5").Formula ?? "").Contains("SUM"));
             s.Equal("a formula's own text survives", "=B2*2", s2.Read("F2").Formula);
             s.Equal("a formula with no cached value shows as the formula", "=B2*2", s2.Read("F2").Display);
             s.Equal("a formula cell with no value has no raw value", "", s2.Read("F2").Raw);
@@ -105,7 +104,75 @@ public static class SheetSuite
             finally { try { File.Delete(copy); } catch { } }
         }
 
+        Staleness(s);
         return s;
+    }
+
+    /// <summary>Only the totals that read an edited cell may lose their value; the rest must keep theirs.</summary>
+    private static void Staleness(Suite s)
+    {
+        var work = Fixtures.Copy("sheet.xlsx");
+        try
+        {
+            // B5 = SUM(B2:B4); C5 and D5 total their own columns; E2..E4 divide within their row.
+            var w = new Workbook(OpcPackage.Open(work));
+            var sheet = w.Sheets[0];
+            string cachedC5 = sheet.Read("C5").Raw, cachedD5 = sheet.Read("D5").Raw, cachedE3 = sheet.Read("E3").Raw;
+            s.Check("the fixture starts with cached totals", cachedC5.Length > 0 && cachedD5.Length > 0);
+
+            sheet.Set("B2", "500000");
+            w.Save(work);
+
+            var again = new Workbook(OpcPackage.Open(work)).Sheets[0];
+            s.Equal("the total over the edited column is cleared", "", again.Read("B5").Raw);
+            s.Equal("a total over another column keeps its value", cachedC5, again.Read("C5").Raw);
+            s.Equal("a second untouched total keeps its value", cachedD5, again.Read("D5").Raw);
+            s.Equal("a formula in an untouched row keeps its value", cachedE3, again.Read("E3").Raw);
+            s.Check("the untouched totals still show a number", again.Read("C5").Display.Length > 0);
+        }
+        finally { try { File.Delete(work); } catch { } }
+
+        // Staleness must travel: a total of a total is stale too.
+        var chain = Fixtures.Copy("sheet.xlsx");
+        try
+        {
+            var w = new Workbook(OpcPackage.Open(chain));
+            var sheet = w.Sheets[0];
+            sheet.Set("H1", "10");
+            sheet.Set("H2", "=H1*2");
+            sheet.Set("H3", "=H2+1");
+            w.Save(chain);
+
+            var w2 = new Workbook(OpcPackage.Open(chain));
+            var s2 = w2.Sheets[0];
+            s2.Set("H1", "20");
+            w2.Save(chain);
+
+            var after = new Workbook(OpcPackage.Open(chain)).Sheets[0];
+            s.Equal("a formula reading the edit is cleared", "", after.Read("H2").Raw);
+            s.Equal("a formula reading that formula is cleared too", "", after.Read("H3").Raw);
+            s.Equal("the edited value itself is kept", "20", after.Read("H1").Raw);
+        }
+        finally { try { File.Delete(chain); } catch { } }
+
+        // An edit on one sheet must clear a total on another that reads it, and nothing else.
+        var multi = Fixtures.Copy("book.xlsx");
+        try
+        {
+            var w = new Workbook(OpcPackage.Open(multi));
+            w.Sheets[0].Set("D1", "=SUM(Detail!B2:B4)");
+            w.Sheets[0].Set("D2", "=SUM(Notes!A1:A3)");
+            w.Save(multi);
+
+            var w2 = new Workbook(OpcPackage.Open(multi));
+            w2.Sheets[1].Set("B2", "999");
+            w2.Save(multi);
+
+            var after = new Workbook(OpcPackage.Open(multi)).Sheets[0];
+            s.Equal("a cross-sheet total over the edit is cleared", "", after.Read("D1").Raw);
+            s.Check("a cross-sheet total over another sheet is untouched", after.Read("D2").Formula is not null);
+        }
+        finally { try { File.Delete(multi); } catch { } }
     }
 
     /// <summary>True when any cell carries both a formula and a cached value.</summary>

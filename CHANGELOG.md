@@ -6,7 +6,7 @@ First working version.
 
 The package layer holds every part of a Word, Excel or PowerPoint file as the exact bytes it occupies, compression included, so a part nobody edited is written back byte for byte and an unchanged save returns the identical file. Verified against a corpus of real Office documents.
 
-Excel: cells, text, formulas, shared strings, number formats and the column widths the file stores. Editing a cell clears the values Excel cached beside that sheet's formulas, because Plain does not evaluate formulas and a stale total is worse than a recalculation. Word: the body text, with headings, lists and tables. PowerPoint: the text on each slide.
+Excel: cells, text, formulas, shared strings, number formats and the column widths the file stores. Plain does not evaluate formulas, so instead it reads which cells each formula depends on and clears the cached value of exactly those formulas an edit made untrue, following the chain across sheets. Every other total keeps its number. Word: the body text, with headings, lists and tables. PowerPoint: the text on each slide.
 
 The window: one command row of six controls, a formula bar for spreadsheets, a panel listing every part the app is preserving with its size and what it is, and a status bar that counts the parts on every save. Follows the Windows light or dark setting. Multi-step undo. Drag a file in to open it.
 

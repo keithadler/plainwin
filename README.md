@@ -43,7 +43,7 @@ Charts, pivot tables, macros, SmartArt, pictures, embedded objects, tracked chan
 ## Honest limits
 
 - **No page layout.** Matching Word's pagination needs Word's own fonts and line breaking. Plain shows a document as one scrolling column and says so in the status bar. If you need to see page breaks, you need Word.
-- **No formula evaluation.** Plain does not work out what `=SUM(B2:B4)` comes to. Because of that, editing a cell clears the values Excel cached beside the formulas on that sheet, so nothing on screen is a number that stopped being true. A formula with no computed value shows as the formula. Excel and LibreOffice recalculate it when they open the file.
+- **No formula evaluation.** Plain does not work out what `=SUM(B2:B4)` comes to. Instead it reads which cells each formula depends on, and when you change a cell it clears the cached value of every formula that reads it, and every formula that reads *those*, across all the sheets. Those cells show the formula until Excel or LibreOffice next opens the file and works them out. Every other total on the sheet keeps the number it had. So changing one label in a budget does not empty the budget of its numbers, and no number on screen is one that quietly stopped being true.
 - **Mixed formatting inside one paragraph collapses when you retype it.** A paragraph with one bold word in the middle becomes one run in the first run's formatting. Plain says so in the status bar when it happens. Paragraphs you do not touch are untouched.
 - **No drawing.** Shapes, pictures and diagrams are kept, never rendered.
 - **No ZIP64.** A package using ZIP64 records is opened and re-saved unchanged, but not edited.
