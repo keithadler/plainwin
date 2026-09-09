@@ -97,13 +97,13 @@ public sealed class SheetView : Grid
 
         SetRow(_vertical, 1); SetColumn(_vertical, 2); Children.Add(_vertical);
         SetRow(_horizontal, 2); SetColumn(_horizontal, 1); Children.Add(_horizontal);
-        _vertical.Scroll += (_, _) => { _firstRow = (int)_vertical.Value + 1; Redraw(); };
+        _vertical.Scroll += (_, _) => { _firstRow = Math.Max(FrozenRows + 1, (int)_vertical.Value + 1); Redraw(); };
         _horizontal.Scroll += (_, _) => { _firstColumn = (int)_horizontal.Value + 1; Redraw(); };
 
         Background = App.B("Surface");
         Focusable = true;
         _surface.MouseLeftButtonDown += SurfaceClick;
-        _surface.MouseWheel += (_, e) => { _vertical.Value = Math.Clamp(_vertical.Value - e.Delta / 40.0, 0, _vertical.Maximum); _firstRow = (int)_vertical.Value + 1; Redraw(); };
+        _surface.MouseWheel += (_, e) => { _vertical.Value = Math.Clamp(_vertical.Value - e.Delta / 40.0, _vertical.Minimum, _vertical.Maximum); _firstRow = Math.Max(FrozenRows + 1, (int)_vertical.Value + 1); Redraw(); };
         KeyDown += OnKey;
         SizeChanged += (_, _) => Redraw();
         BuildMenu();
@@ -126,10 +126,29 @@ public sealed class SheetView : Grid
         }
     }
 
+    /// <summary>
+    /// The rows on screen. Frozen rows come first and stay where they are; the rest scroll beneath them. Everything
+    /// that draws or hit-tests goes through here, so freezing needs no special case anywhere else.
+    /// </summary>
     private IEnumerable<(int Row, double Y)> VisibleRows(double height)
     {
         double y = 0;
-        for (int r = _firstRow; r <= _lastRow && y < height; r++, y += RowHeight) yield return (r, y);
+        int frozen = FrozenRows;
+        for (int r = 1; r <= frozen && y < height; r++, y += RowHeight) yield return (r, y);
+        for (int r = Math.Max(_firstRow, frozen + 1); r <= _lastRow && y < height; r++, y += RowHeight)
+            yield return (r, y);
+    }
+
+    /// <summary>How many rows are held still, never so many that there is no room left to scroll in.</summary>
+    internal int FrozenRows
+    {
+        get
+        {
+            int want = _sheet.FrozenRows;
+            if (want <= 0) return 0;
+            int fits = Math.Max(0, (int)(_surface.ActualHeight / RowHeight) - 2);
+            return Math.Min(want, fits);
+        }
     }
 
     private Cell Get(CellRef reference)
@@ -142,7 +161,9 @@ public sealed class SheetView : Grid
 
     public void Redraw()
     {
-        _vertical.Maximum = Math.Max(0, _lastRow - Math.Max(1, (int)(_surface.ActualHeight / RowHeight)) + 1);
+        int frozen = FrozenRows;
+        _vertical.Minimum = frozen;
+        _vertical.Maximum = Math.Max(frozen, _lastRow - Math.Max(1, (int)(_surface.ActualHeight / RowHeight)) + 1);
         _horizontal.Maximum = Math.Max(0, _lastColumn - 6);
         _vertical.ViewportSize = Math.Max(1, _surface.ActualHeight / RowHeight);
         _horizontal.ViewportSize = 6;
@@ -305,6 +326,9 @@ public sealed class SheetView : Grid
     /// <summary>Put a row or column in, or take one out, where the selection is.</summary>
     public event Action<GridEdit, int>? GridChangeRequested;
 
+    /// <summary>Asked to sort the selection by a column; the window does it, because it owns undo and the message.</summary>
+    public event Action<int, int, int, int, int, bool>? SortRequested;
+
     private void BuildMenu()
     {
         var menu = new ContextMenu();
@@ -321,6 +345,52 @@ public sealed class SheetView : Grid
         Item("Insert column left", GridEdit.InsertColumn, () => Range.Left);
         Item("Insert column right", GridEdit.InsertColumn, () => Range.Right + 1);
         Item("Delete this column", GridEdit.DeleteColumn, () => Range.Left);
+        menu.Items.Add(new Separator());
+
+        var fit = new MenuItem { Header = "Fit this column to its contents" };
+        fit.Click += (_, _) =>
+        {
+            int column = Range.Left;
+            double before = _sheet.WidthChars(column);
+            _sheet.SetWidthChars(column, _sheet.WidestChars(column));
+            NoteWidthChange(column, before);
+        };
+        menu.Items.Add(fit);
+
+        void SortItem(string text, bool ascending)
+        {
+            var entry = new MenuItem { Header = text };
+            entry.Click += (_, _) =>
+            {
+                var (l, t, r, b) = Range;
+                // Sorting one column on its own would tear the row apart, so a single-column selection sorts the
+                // whole width of what is filled in, keeping each row together.
+                if (l == r) { l = 1; r = Math.Max(1, _sheet.Extent.Column); }
+                SortRequested?.Invoke(t, b, l, r, Range.Left, ascending);
+            };
+            menu.Items.Add(entry);
+        }
+        menu.Items.Add(new Separator());
+        SortItem("Sort these rows by this column", true);
+        SortItem("Sort these rows by this column, backwards", false);
+        menu.Items.Add(new Separator());
+
+        var freeze = new MenuItem { Header = "Keep the rows above this one on screen" };
+        freeze.Click += (_, _) =>
+        {
+            int before = _sheet.FrozenRows;
+            // Freezing "above this row" means the rows before the selected one stay put, which is what people mean
+            // when they click on row 2 and ask for the header to stay.
+            int want = before > 0 ? 0 : Math.Max(0, Range.Top - 1);
+            _sheet.SetFrozenRows(want);
+            _firstRow = Math.Max(want + 1, _firstRow);
+            Redraw();
+            Edited?.Invoke(() => { _sheet.SetFrozenRows(before); Redraw(); });
+        };
+        menu.Items.Add(freeze);
+        menu.Opened += (_, _) =>
+            freeze.Header = _sheet.FrozenRows > 0 ? "Let every row scroll again" : "Keep the rows above this one on screen";
+
         ContextMenu = menu;
     }
 
@@ -537,6 +607,15 @@ public sealed class SheetView : Grid
                 }
             }
 
+            // A stronger line under the rows that are held still, so it reads as a header that stays rather than
+            // as a sheet that has lost its place.
+            int frozenHere = v.FrozenRows;
+            if (frozenHere > 0)
+            {
+                double edge = Snap(frozenHere * RowHeight);
+                dc.DrawLine(new Pen(App.B("Ink3"), 1.5), new Point(0, edge), new Point(w, edge));
+            }
+
             // The selection sits on top so its outline is never cut by a gridline. A range is tinted; the cell you
             // are actually on keeps the crisp outline so you can always see where typing would go.
             var (left, top, right, bottom) = v.Range;
@@ -560,11 +639,76 @@ public sealed class SheetView : Grid
         private static double Snap(double value) => Math.Round(value) + 0.5;
     }
 
+    /// <summary>A width change is an edit like any other: it dirties the file and Ctrl+Z puts the old width back.</summary>
+    internal void NoteWidthChange(int column, double before)
+    {
+        Redraw();
+        Edited?.Invoke(() => { _sheet.SetWidthChars(column, before); Redraw(); });
+    }
+
     private sealed class Strip : FrameworkElement
     {
         private readonly SheetView _view;
         private readonly bool _horizontal;
-        public Strip(SheetView view, bool horizontal) { _view = view; _horizontal = horizontal; ClipToBounds = true; }
+        public Strip(SheetView view, bool horizontal)
+        {
+            _view = view; _horizontal = horizontal; ClipToBounds = true;
+            if (!horizontal) return;
+
+            // Dragging the line between two column headings changes the width, and double-clicking it fits the
+            // column to its longest value. The file keeps widths, so this is an edit like any other: it marks the
+            // sheet changed and is written back when you save.
+            MouseMove += (_, e) =>
+            {
+                if (_dragging > 0)
+                {
+                    double want = (e.GetPosition(this).X - _dragFrom) / 7.0;
+                    _view._sheet.SetWidthChars(_dragging, Math.Max(0.5, want));
+                    _view.Redraw();
+                    return;
+                }
+                Cursor = EdgeAt(e.GetPosition(this).X) > 0 ? Cursors.SizeWE : Cursors.Arrow;
+            };
+            MouseLeftButtonDown += (_, e) =>
+            {
+                int column = EdgeAt(e.GetPosition(this).X);
+                if (column == 0) return;
+                if (e.ClickCount >= 2)
+                {
+                    double before = _view._sheet.WidthChars(column);
+                    _view._sheet.SetWidthChars(column, _view._sheet.WidestChars(column));
+                    _view.NoteWidthChange(column, before);
+                    e.Handled = true;
+                    return;
+                }
+                _dragging = column;
+                _widthBefore = _view._sheet.WidthChars(column);
+                foreach (var (c, x, _) in _view.VisibleColumns(ActualWidth)) if (c == column) _dragFrom = x;
+                CaptureMouse();
+                e.Handled = true;
+            };
+            MouseLeftButtonUp += (_, e) =>
+            {
+                if (_dragging == 0) return;
+                int done = _dragging;
+                _dragging = 0;
+                ReleaseMouseCapture();
+                _view.NoteWidthChange(done, _widthBefore);
+                e.Handled = true;
+            };
+        }
+
+        private int _dragging;
+        private double _dragFrom;
+        private double _widthBefore;
+
+        /// <summary>Which column's right edge is under this x, within a few pixels either side. Nought for none.</summary>
+        private int EdgeAt(double x)
+        {
+            foreach (var (column, cx, cw) in _view.VisibleColumns(ActualWidth))
+                if (Math.Abs(x - (cx + cw)) <= 3) return column;
+            return 0;
+        }
 
         protected override void OnRender(DrawingContext dc)
         {

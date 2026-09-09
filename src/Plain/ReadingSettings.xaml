@@ -37,6 +37,11 @@
     <TextBlock Text="A copy is kept every half minute beside the settings, and offered back next time Plain starts."
                TextWrapping="Wrap" FontSize="11.5" Foreground="{DynamicResource Ink3}" Margin="22,0,0,18"/>
 
+    <CheckBox x:Name="CheckUpdates" Content="Check GitHub once a day for a new version"
+              Margin="0,0,0,4"/>
+    <TextBlock Text="The only thing Plain ever sends over a network. It sends nothing about you or your files, downloads nothing, and installs nothing: it puts a line in the status bar and you decide. Turn this off and Plain makes no network request at all."
+               TextWrapping="Wrap" FontSize="11.5" Foreground="{DynamicResource Ink3}" Margin="22,0,0,18"/>
+
     <Border BorderBrush="{DynamicResource LineStrong}" BorderThickness="1" CornerRadius="6" Padding="14"
             Background="{DynamicResource Surface}" Margin="0,0,0,18">
       <TextBlock x:Name="Sample" TextWrapping="Wrap"

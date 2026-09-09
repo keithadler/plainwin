@@ -16,7 +16,7 @@ public static class Cli
     public const string Version = "1.0.1";
 
     private static readonly string[] Verbs =
-        { "info", "parts", "text", "cells", "get", "set", "new", "replace", "row", "column", "props", "pdf", "csv", "import", "count", "images", "apply", "changes", "comments", "roundtrip", "selftest", "version", "help", "--help", "-h", "--version" };
+        { "info", "parts", "text", "cells", "get", "set", "new", "replace", "row", "column", "width", "freeze", "sort", "props", "pdf", "csv", "import", "count", "images", "apply", "changes", "comments", "roundtrip", "selftest", "version", "help", "--help", "-h", "--version" };
 
     public static bool IsVerb(string arg) => Verbs.Contains(arg, StringComparer.OrdinalIgnoreCase);
 
@@ -28,6 +28,9 @@ public static class Cli
         and never damages what it doesn't understand.
 
           plain new <file.xlsx|.docx|.pptx>  make a new empty file of that kind
+          plain width <file> <col> <chars|fit> [sheet]   set a column's width, or fit it to its contents
+          plain freeze <file> <rows> [sheet]             keep this many rows at the top on screen
+          plain sort <file> <range> <col> [down] [sheet] sort rows, refusing if a formula would be broken
           plain info <file>                what the file is, and what Plain keeps untouched
           plain parts <file> [--json]      every part, and whether Plain shows it or preserves it
           plain text <file>                the text, as plain text
@@ -257,6 +260,81 @@ public static class Cli
                     var (total, edited, kept) = file.Counts();
                     file.Save();
                     o.WriteLine($"changed {result.Occurrences} occurrence{(result.Occurrences == 1 ? "" : "s")} in {result.Cells} place{(result.Cells == 1 ? "" : "s")}; {edited} of {total} parts rewritten, {kept} kept byte for byte");
+                    return 0;
+                }
+
+                case "sort":
+                {
+                    if (rest.Count < 3) { err.WriteLine("sort <file> <range like A2:D40> <col> [down] [sheet]"); return 64; }
+                    var file = PlainFile.Open(rest[0]);
+                    if (file.Workbook is null) { err.WriteLine("sort only works on a spreadsheet."); return 2; }
+
+                    var parts = rest[1].Split(':');
+                    if (parts.Length != 2 || !CellRef.TryParse(parts[0], out var from) || !CellRef.TryParse(parts[1], out var to))
+                    { err.WriteLine("a range looks like A2:D40."); return 64; }
+                    if (!CellRef.TryParse(rest[2] + "1", out var keyCell))
+                    { err.WriteLine("a column is a letter like A or AB."); return 64; }
+
+                    bool down = rest.Count > 3 && rest[3].Equals("down", StringComparison.OrdinalIgnoreCase);
+                    string? sheetName = rest.Count > 4 ? rest[4] : (rest.Count > 3 && !down ? rest[3] : null);
+                    var sheet = sheetName is not null
+                        ? file.Workbook.Sheets.FirstOrDefault(x => x.Name.Equals(sheetName, StringComparison.OrdinalIgnoreCase))
+                        : file.Workbook.Sheets[0];
+                    if (sheet is null) { err.WriteLine($"no sheet called \"{sheetName}\"."); return 2; }
+
+                    var outcome = Sort.Rows(file.Workbook, sheet,
+                        Math.Min(from.Row, to.Row), Math.Max(from.Row, to.Row),
+                        Math.Min(from.Column, to.Column), Math.Max(from.Column, to.Column),
+                        keyCell.Column, !down);
+
+                    if (outcome is Sort.Refused refused) { err.WriteLine(refused.Reason); return 2; }
+                    var done = (Sort.Sorted)outcome;
+                    file.Flush();
+                    File.WriteAllBytes(file.Path, file.Package.ToBytes());
+                    o.WriteLine($"sorted {sheet.Name} by column {rest[2].ToUpperInvariant()}, {done.RowsMoved} rows moved");
+                    return 0;
+                }
+
+                case "width":
+                {
+                    if (rest.Count < 3) { err.WriteLine("width <file> <col> <chars|fit> [sheet]"); return 64; }
+                    var file = PlainFile.Open(rest[0]);
+                    if (file.Workbook is null) { err.WriteLine("width only works on a spreadsheet."); return 2; }
+                    var sheet = rest.Count > 3
+                        ? file.Workbook.Sheets.FirstOrDefault(x => x.Name.Equals(rest[3], StringComparison.OrdinalIgnoreCase))
+                        : file.Workbook.Sheets[0];
+                    if (sheet is null) { err.WriteLine($"no sheet called \"{rest[3]}\"."); return 2; }
+                    if (!CellRef.TryParse(rest[1] + "1", out var asCell)) { err.WriteLine("a column is a letter like A or AB."); return 64; }
+
+                    double want;
+                    if (rest[2].Equals("fit", StringComparison.OrdinalIgnoreCase)) want = sheet.WidestChars(asCell.Column);
+                    else if (!double.TryParse(rest[2], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out want))
+                    { err.WriteLine("a width is a number of characters, or the word fit."); return 64; }
+
+                    sheet.SetWidthChars(asCell.Column, want);
+                    file.Flush();
+                    File.WriteAllBytes(file.Path, file.Package.ToBytes());
+                    o.WriteLine($"column {rest[1].ToUpperInvariant()} on {sheet.Name} is now {sheet.WidthChars(asCell.Column)} characters wide");
+                    return 0;
+                }
+
+                case "freeze":
+                {
+                    if (rest.Count < 2) { err.WriteLine("freeze <file> <rows> [sheet]"); return 64; }
+                    var file = PlainFile.Open(rest[0]);
+                    if (file.Workbook is null) { err.WriteLine("freeze only works on a spreadsheet."); return 2; }
+                    var sheet = rest.Count > 2
+                        ? file.Workbook.Sheets.FirstOrDefault(x => x.Name.Equals(rest[2], StringComparison.OrdinalIgnoreCase))
+                        : file.Workbook.Sheets[0];
+                    if (sheet is null) { err.WriteLine($"no sheet called \"{rest[2]}\"."); return 2; }
+                    if (!int.TryParse(rest[1], out var rows) || rows < 0) { err.WriteLine("a number of rows, 0 for none."); return 64; }
+
+                    sheet.SetFrozenRows(rows);
+                    file.Flush();
+                    File.WriteAllBytes(file.Path, file.Package.ToBytes());
+                    o.WriteLine(rows == 0
+                        ? $"{sheet.Name} scrolls freely again"
+                        : $"the first {rows} row{(rows == 1 ? "" : "s")} of {sheet.Name} stay on screen");
                     return 0;
                 }
 

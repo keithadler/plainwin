@@ -19,6 +19,9 @@ public static class Screenshots
     /// <summary>Open the comments panel in the picture, so the rendered shots can show it.</summary>
     public static bool ShowNotes { get; set; }
 
+    /// <summary>Which cell to put the view on before drawing, so a picture can show a sheet part way down.</summary>
+    public static string? StartAt { get; set; }
+
     public static int Render(string outDir, IReadOnlyList<string> files, bool dark)
     {
         Active = true;
@@ -46,6 +49,8 @@ public static class Screenshots
             window.OpenForScreenshot(file, ShowNotes);
             window.Show();
             Pump(window.Dispatcher);
+            // After the pump, because the grid puts itself back on A1 when it loads.
+            if (StartAt is not null) { window.ScrollForScreenshot(StartAt); Pump(window.Dispatcher); }
 
             // Measure and arrange explicitly so the tree is laid out even though nothing is on screen.
             var content = (FrameworkElement)window.Content;

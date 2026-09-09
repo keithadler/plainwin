@@ -54,6 +54,8 @@ public static class SelfTest
         ("deck", DeckSuite.Run),
         ("scale", ScaleSuite.Run),
         ("damage", DamageSuite.Run),
+        ("sort", SortSuite.Run),
+        ("updates", UpdatesSuite.Run),
         ("corpus", CorpusSuite.Run),
     };
 

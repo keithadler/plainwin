@@ -28,7 +28,7 @@ public static class Promo
             "No ribbon and no layout engine. A rail lists every part Plain cannot draw, and it declines the edit rather than guess at one.",
             "woodland"),
         new("4-free", "Free. Open source. No account.",
-            "No cloud, no telemetry, no network code at all. Save a file unchanged and it comes back byte for byte, checked on every build. Built by Keith Adler.",
+            "No cloud, no telemetry, no account. Save a file unchanged and it comes back byte for byte, checked on every build. Built by Keith Adler.",
             null, Mono: "plain roundtrip quarter.xlsx"),
     };
 

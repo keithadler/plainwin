@@ -24,8 +24,12 @@ public sealed class WorkbookView : Grid, IFindable
     public event Action<CellRef, Cell>? SelectionChanged;
     public event Action<Action>? Edited;
     public event Action<GridEdit, int>? GridChangeRequested;
+    public event Action<int, int, int, int, int, bool>? SortRequested;
 
     public Sheet CurrentSheet => _current.Sheet;
+
+    /// <summary>Draw the sheet again after something changed underneath it, and forget what was cached.</summary>
+    public void Redraw() => _current.Reload();
     public SheetView CurrentGrid => _current;
 
     public WorkbookView(Workbook book)
@@ -70,6 +74,7 @@ public sealed class WorkbookView : Grid, IFindable
             grid.SelectionChanged += (reference, cell) => SelectionChanged?.Invoke(reference, cell);
             grid.Edited += undo => Edited?.Invoke(undo);
             grid.GridChangeRequested += (edit, at) => GridChangeRequested?.Invoke(edit, at);
+            grid.SortRequested += (t, b, l, r, key, up) => SortRequested?.Invoke(t, b, l, r, key, up);
             _grids[sheet] = grid;
         }
         _current = grid;

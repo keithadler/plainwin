@@ -109,6 +109,68 @@ public static class SheetSuite
         Staleness(s);
         Formatting(s);
         NoSharedTable(s);
+        // ---- column widths, which sorting and autofit both lean on ----
+        if (!Fixtures.Missing(s, "sheet.xlsx"))
+        {
+            var wf = Fixtures.Copy("sheet.xlsx");
+            var wfile = PlainFile.Open(wf);
+            var wb = wfile.Workbook!;
+            var ws = wb.Sheets[0];
+
+            double was = ws.WidthChars(2);
+            ws.SetWidthChars(2, 31.5);
+            s.Check("a width set is a width read back", Math.Abs(ws.WidthChars(2) - 31.5) < 0.01);
+            s.Check("the column beside it is untouched", Math.Abs(ws.WidthChars(3) - ws.WidthChars(3)) < 0.01);
+
+            // Setting one column inside a range has to split the range, not widen all of it.
+            ws.SetWidthChars(5, 12.0);
+            ws.SetWidthChars(6, 44.0);
+            s.Check("two columns keep their own widths",
+                Math.Abs(ws.WidthChars(5) - 12.0) < 0.01 && Math.Abs(ws.WidthChars(6) - 44.0) < 0.01);
+            ws.SetWidthChars(5, 9.0);
+            s.Check("changing one again leaves the other alone", Math.Abs(ws.WidthChars(6) - 44.0) < 0.01);
+
+            ws.SetWidthChars(7, 100000);
+            s.Check("a silly width is brought back into range", ws.WidthChars(7) <= 255);
+            ws.SetWidthChars(0, 20);
+            ws.SetWidthChars(20000, 20);
+            s.Check("a column outside the sheet is refused quietly", ws.WidthChars(1) > 0);
+
+            wfile.Flush();   // the models hold the change until asked; the package is only bytes
+            var written = PlainFile.Read(wfile.Package.ToBytes(), wf);
+            var reread = written.Workbook!.Sheets[0];
+            s.Check("the widths survive a save", Math.Abs(reread.WidthChars(2) - 31.5) < 0.01);
+            s.Check("and so does the one beside it", Math.Abs(reread.WidthChars(6) - 44.0) < 0.01);
+            s.Check("the file still round trips after a width change",
+                PlainFile.Read(written.Package.ToBytes(), wf).Workbook is not null);
+            s.Check("only the sheet was rewritten, the rest kept byte for byte",
+                wfile.Package.Parts.Count(pp => pp.Edited) <= 2);
+
+            s.Check("autofit asks for room for the longest value", ws.WidestChars(1) > 0);
+        }
+
+        // ---- frozen header rows ----
+        if (!Fixtures.Missing(s, "sheet.xlsx"))
+        {
+            var ff = Fixtures.Copy("sheet.xlsx");
+            var ffile = PlainFile.Open(ff);
+            var fs = ffile.Workbook!.Sheets[0];
+
+            fs.SetFrozenRows(1);
+            s.Check("one row frozen reads back as one", fs.FrozenRows == 1);
+            fs.SetFrozenRows(4);
+            s.Check("changing it does not stack up panes", fs.FrozenRows == 4);
+            fs.SetFrozenRows(0);
+            s.Check("none means none", fs.FrozenRows == 0);
+
+            fs.SetFrozenRows(2);
+            ffile.Flush();
+            var back = PlainFile.Read(ffile.Package.ToBytes(), ff).Workbook!.Sheets[0];
+            s.Check("freezing survives a save", back.FrozenRows == 2);
+            s.Check("the file still round trips with a frozen pane",
+                PlainFile.Read(ffile.Package.ToBytes(), ff).Workbook is not null);
+        }
+
         return s;
     }
 

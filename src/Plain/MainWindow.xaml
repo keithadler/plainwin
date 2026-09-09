@@ -14,6 +14,7 @@
       <RowDefinition Height="*"/>
       <RowDefinition Height="Auto"/>
       <RowDefinition Height="Auto"/>
+      <RowDefinition Height="Auto"/>
     </Grid.RowDefinitions>
 
     <!-- open files -->
@@ -282,8 +283,21 @@
       </DockPanel>
     </Border>
 
+    <!-- a new version, mentioned once and never insisted on -->
+    <Border x:Name="UpdateBar" Grid.Row="5" Visibility="Collapsed" Background="{DynamicResource AccentSoft}"
+            BorderBrush="{DynamicResource Line}" BorderThickness="0,1,0,0" Padding="12,0">
+      <DockPanel Height="30" LastChildFill="False">
+        <TextBlock x:Name="UpdateText" DockPanel.Dock="Left" VerticalAlignment="Center"
+                   FontSize="11.5" Foreground="{DynamicResource AccentInk}"/>
+        <Button Style="{StaticResource Flat}" Content="Not now" Click="OnUpdateDismiss" DockPanel.Dock="Right"
+                FontSize="11.5"/>
+        <Button Style="{StaticResource Flat}" Content="See what changed" Click="OnUpdateOpen" DockPanel.Dock="Right"
+                FontSize="11.5" Margin="0,0,8,0"/>
+      </DockPanel>
+    </Border>
+
     <!-- the promise, as a count -->
-    <Border Grid.Row="5" Background="{DynamicResource Chrome}" BorderBrush="{DynamicResource Line}" BorderThickness="0,1,0,0" Padding="12,0">
+    <Border Grid.Row="6" Background="{DynamicResource Chrome}" BorderBrush="{DynamicResource Line}" BorderThickness="0,1,0,0" Padding="12,0">
       <DockPanel Height="28" LastChildFill="False">
         <Ellipse Width="7" Height="7" Fill="{DynamicResource Preserved}" DockPanel.Dock="Left" VerticalAlignment="Center"/>
         <TextBlock x:Name="StatusPromise" DockPanel.Dock="Left" VerticalAlignment="Center" Margin="8,0,0,0"

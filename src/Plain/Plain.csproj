@@ -51,6 +51,8 @@
     <Compile Remove="DocView.cs" />
     <Compile Remove="DeckView.cs" />
     <Compile Remove="Screenshots.cs" />
+    <!-- the console twin never checks for updates: a scheduled job should not reach the network unasked -->
+    <Compile Remove="UpdateCheck.cs" />
     <Compile Remove="Promo.cs" />
     <Compile Remove="Settings.cs" />
     <Compile Remove="Printing.cs" />

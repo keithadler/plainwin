@@ -22,7 +22,10 @@ public partial class App : Application
             // Render pictures of the window and quit, without ever putting a window on screen.
             ApplyTheme(args.Contains("--dark"));
             Screenshots.ShowNotes = args.Contains("--notes");
+            int at = Array.IndexOf(args, "--at");
+            if (at >= 0 && at + 1 < args.Length) Screenshots.StartAt = args[at + 1];
             var files = args.Skip(flag + 2).Where(a => !a.StartsWith('-')).ToList();
+            if (Screenshots.StartAt is not null) files.Remove(Screenshots.StartAt);
             if (args.Contains("--announce"))
             {
                 Application.Current.ShutdownMode = ShutdownMode.OnExplicitShutdown;

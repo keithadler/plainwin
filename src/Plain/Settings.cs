@@ -24,6 +24,19 @@ public sealed class Settings
     /// <summary>Keep a copy of unsaved work, so a machine that dies does not take the afternoon with it.</summary>
     public bool KeepRecovery { get; set; } = true;
 
+    /// <summary>
+    /// Ask GitHub once a day whether there is a newer version, and say so in the status bar if there is. This is the
+    /// only thing Plain ever sends over a network, it sends nothing about you or your files, and nothing downloads or
+    /// installs itself. Turn it off and Plain makes no network request at all.
+    /// </summary>
+    public bool CheckForUpdates { get; set; } = true;
+
+    /// <summary>When the last check happened, so it is once a day rather than once a launch.</summary>
+    public DateTimeOffset? LastUpdateCheck { get; set; }
+
+    /// <summary>A version already seen and mentioned, so the same one is not announced every day.</summary>
+    public string UpdateSeen { get; set; } = "";
+
     /// <summary>Papers people asked for by name, plus following the theme.</summary>
     public static readonly (string Name, string Hex)[] Papers =
     {

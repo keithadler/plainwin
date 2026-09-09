@@ -6,6 +6,6 @@ Plain opens the file as the package of parts it really is and writes back every 
 
 Open a file, save it without changing anything, and you get the same file back byte for byte. That's a claim a test can check, and it's checked against real documents on every build — 39 of 39, including ones stuffed with macros and pivot tables.
 
-One exe. No installer, no account, no cloud, no telemetry, no network code at all. Free and MIT.
+One exe. No installer, no account, no cloud, no telemetry. It asks GitHub once a day whether there is a newer version, and that is the only thing it ever sends; turn it off and it makes no network request at all. Free and MIT.
 
 Windows 10 or 11, Intel/AMD or ARM: https://github.com/keithadler/plainwin

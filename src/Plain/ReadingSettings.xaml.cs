@@ -40,6 +40,7 @@ public partial class ReadingSettings : Window
 
         WidthSlider.Value = Math.Clamp(_settings.TextWidth, WidthSlider.Minimum, WidthSlider.Maximum);
         KeepRecovery.IsChecked = _settings.KeepRecovery;
+        CheckUpdates.IsChecked = _settings.CheckForUpdates;
 
         FontPicker.SelectionChanged += (_, _) => ShowSample();
         PaperPicker.SelectionChanged += (_, _) => ShowSample();
@@ -77,6 +78,7 @@ public partial class ReadingSettings : Window
         SpacingPicker.SelectedIndex = 0;
         WidthSlider.Value = 860;
         KeepRecovery.IsChecked = true;
+        CheckUpdates.IsChecked = true;
         ShowSample();
     }
 
@@ -87,6 +89,7 @@ public partial class ReadingSettings : Window
         _settings.LineSpacing = (SpacingPicker.SelectedItem as ComboBoxItem)?.Tag as double? ?? 1.0;
         _settings.TextWidth = WidthSlider.Value;
         _settings.KeepRecovery = KeepRecovery.IsChecked == true;
+        _settings.CheckForUpdates = CheckUpdates.IsChecked == true;
         DialogResult = true;
     }
 }

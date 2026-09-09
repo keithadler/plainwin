@@ -46,10 +46,18 @@ public partial class MainWindow : Window
                 foreach (var arg in Environment.GetCommandLineArgs().Skip(1))
                     if (!arg.StartsWith('-') && File.Exists(arg)) OpenPath(arg);
                 OfferRecovery();
+                StartUpdateCheck();
             }
             Refresh();
         };
         KeyDown += OnWindowKey;
+    }
+
+    /// <summary>Put the grid on a cell, so a picture can show a sheet part way down rather than always at A1.</summary>
+    internal void ScrollForScreenshot(string cell)
+    {
+        if (_active?.View is WorkbookView book && Core.CellRef.TryParse(cell, out var reference))
+            book.CurrentGrid.Select(reference);
     }
 
     /// <summary>Open a file straight away, for the screenshot renderer which has no user to click Open.</summary>
@@ -80,6 +88,31 @@ public partial class MainWindow : Window
         };
         _keeper.Start();
     }
+
+    /// <summary>
+    /// Ask GitHub once a day whether there is a newer version. Everything about this is deliberately quiet: it runs
+    /// in the background, it never blocks opening a file, a failure says nothing at all, and the most it does when it
+    /// finds something is put a sentence in the status bar with a button beside it. Nothing downloads or installs
+    /// itself, and the switch to stop it is in Reading and settings.
+    /// </summary>
+    private void StartUpdateCheck()
+    {
+        UpdateCheck.Start(_settings, found =>
+        {
+            _updateFound = found;
+            UpdateBar.Visibility = Visibility.Visible;
+            UpdateText.Text = $"Version {found.Version} is out. You have {Cli.Version}.";
+        });
+    }
+
+    private Core.Updates.Available? _updateFound;
+
+    private void OnUpdateOpen(object sender, RoutedEventArgs e)
+    {
+        if (_updateFound is not null) UpdateCheck.OpenReleasePage(_updateFound.Page);
+    }
+
+    private void OnUpdateDismiss(object sender, RoutedEventArgs e) => UpdateBar.Visibility = Visibility.Collapsed;
 
     /// <summary>Offer back anything a previous run did not get to save.</summary>
     private void OfferRecovery()
@@ -238,6 +271,7 @@ public partial class MainWindow : Window
                 };
                 bookView.Edited += undo => { entry.Undo.Push(undo); entry.Dirty = true; Refresh(); };
                 bookView.GridChangeRequested += (edit, at) => ChangeGrid(entry, bookView, edit, at);
+                bookView.SortRequested += (t, b, l, r, key, up) => SortRows(entry, bookView, t, b, l, r, key, up);
                 break;
             }
             case FileKind.Document:
@@ -389,6 +423,46 @@ public partial class MainWindow : Window
         Keyboard.ClearFocus();
         // Put the caret back where the typing was, so saving does not also move you.
         if (box.IsVisible) { int at = box.SelectionStart; box.Focus(); box.Select(at, 0); }
+    }
+
+    /// <summary>
+    /// Sort the selected rows. Plain refuses whenever a formula would be made to mean something else, and when it
+    /// refuses it says why in the status bar rather than doing something almost right. The whole block is kept for
+    /// undo before anything moves, so Ctrl+Z puts the rows back exactly as they were.
+    /// </summary>
+    private void SortRows(OpenFile entry, WorkbookView view, int top, int bottom, int left, int right,
+                          int keyColumn, bool ascending)
+    {
+        var book = entry.File.Workbook;
+        var sheet = view.CurrentSheet;
+        if (book is null || sheet is null) return;
+
+        // Remember what was there, so undo is exact rather than a second sort in the other direction.
+        var before = new List<(CellRef At, string Value)>();
+        for (int r = top; r <= bottom; r++)
+            for (int c = left; c <= right; c++)
+            {
+                var cell = sheet.Read(new CellRef(c, r));
+                before.Add((new CellRef(c, r),
+                    cell.Kind is Core.CellKind.Number or Core.CellKind.Boolean ? cell.Raw
+                    : cell.Kind == Core.CellKind.Empty ? "" : cell.Display));
+            }
+
+        var result = Core.Sort.Rows(book, sheet, top, bottom, left, right, keyColumn, ascending);
+        if (result is Core.Sort.Refused refused) { Say(refused.Reason); return; }
+
+        var sorted = (Core.Sort.Sorted)result;
+        entry.Undo.Push(() =>
+        {
+            foreach (var (at, value) in before) sheet.Set(at, value);
+            view.Redraw();
+        });
+        entry.Dirty = true;
+        view.Redraw();
+        Say(sorted.RowsMoved == 0
+            ? "Those rows were already in that order."
+            : $"Sorted {bottom - top + 1} rows by column {Core.CellRef.ColumnName(keyColumn)}. {sorted.RowsMoved} moved.");
+        Refresh();
     }
 
     private void OnSave(object sender, RoutedEventArgs e)
@@ -582,7 +656,8 @@ public partial class MainWindow : Window
             "Opens Word, Excel and PowerPoint files, edits the basics, and never damages what it doesn't understand.\n\n" +
             "The panel on the right names everything in a file that Plain keeps but cannot draw. All of it is written " +
             "back exactly as it was found, so nothing you cannot see is at risk when you save.\n\n" +
-            "Free and MIT licensed. No account, no cloud, and no network code in it at all.\n\n" +
+            "Free and MIT licensed. No account, no cloud, no telemetry. The only thing it sends is a daily\n" +
+            "question to GitHub about whether there is a newer version, which you can turn off in settings.\n\n" +
             "More small apps like this one: keithadler.github.io\n" +
             "Source and issues: github.com/keithadler/plainwin\n\n" +
             $"Settings and kept copies live in:\n{Settings.Folder}",

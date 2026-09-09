@@ -427,6 +427,131 @@ public sealed class Sheet
     private List<(int Min, int Max, double Width)>? _widths;
     private double _defaultWidth = 8.43;
 
+    /// <summary>
+    /// Set a column's width, in Excel's character units, the way dragging its edge does. The file keeps widths as
+    /// ranges, so setting one column inside a range splits it; ranges that end up meaning the same thing are left
+    /// alone rather than tidied, because tidying them would rewrite a part nobody asked to change.
+    /// </summary>
+    public void SetWidthChars(int column, double width)
+    {
+        if (column < 1 || column > 16384) return;
+        width = Math.Clamp(Math.Round(width, 2), 0.5, 255);
+        _widths ??= ReadWidths();
+
+        // sheetData's parent is the worksheet element itself, which is where cols has to live.
+        var sheetElement = Data.Parent!;
+        var cols = sheetElement.Element(D.Sheet + "cols");
+        if (cols is null)
+        {
+            cols = new XElement(D.Sheet + "cols");
+            // cols must sit after sheetFormatPr and before sheetData, or Excel calls the file damaged.
+            var before = sheetElement.Element(D.Sheet + "sheetData");
+            if (before is not null) before.AddBeforeSelf(cols);
+            else sheetElement.Add(cols);
+        }
+
+        // Narrow any range that covers this column so it no longer does, keeping the parts either side.
+        foreach (var col in cols.Elements(D.Sheet + "col").ToList())
+        {
+            int min = Xml.Int(col.Attribute("min"), 0), max = Xml.Int(col.Attribute("max"), 0);
+            if (min == 0 || max == 0 || column < min || column > max) continue;
+            if (min == max) { col.Remove(); continue; }
+            if (column == min) { col.SetAttributeValue("min", min + 1); continue; }
+            if (column == max) { col.SetAttributeValue("max", max - 1); continue; }
+            var tail = new XElement(col);
+            tail.SetAttributeValue("min", column + 1);
+            col.SetAttributeValue("max", column - 1);
+            col.AddAfterSelf(tail);
+        }
+
+        var entry = new XElement(D.Sheet + "col",
+            new XAttribute("min", column), new XAttribute("max", column),
+            new XAttribute("width", width.ToString(CultureInfo.InvariantCulture)),
+            new XAttribute("customWidth", "1"));
+        var after = cols.Elements(D.Sheet + "col").LastOrDefault(c => Xml.Int(c.Attribute("min"), 0) < column);
+        if (after is not null) after.AddAfterSelf(entry); else cols.AddFirst(entry);
+
+        _widths = null;      // read again from what is now in the file
+        _dirty = true;
+    }
+
+    /// <summary>
+    /// How many rows at the top the file asks to keep still while the rest scrolls. Excel writes this as a frozen
+    /// pane in the sheet's own view settings, so a sheet that already had a frozen header keeps it here.
+    /// </summary>
+    public int FrozenRows
+    {
+        get
+        {
+            var pane = Data.Parent!.Element(D.Sheet + "sheetViews")?
+                .Elements(D.Sheet + "sheetView").FirstOrDefault()?.Element(D.Sheet + "pane");
+            if (pane is null) return 0;
+            if ((string?)pane.Attribute("state") is not ("frozen" or "frozenSplit")) return 0;
+            return Math.Clamp(Xml.Int(pane.Attribute("ySplit"), 0), 0, 100);
+        }
+    }
+
+    /// <summary>
+    /// Keep this many rows at the top still. Written where Excel keeps it, so the sheet opens the same way in Excel
+    /// as it does here, and cleared away entirely when set back to none rather than left as a pane freezing nothing.
+    /// </summary>
+    public void SetFrozenRows(int rows)
+    {
+        rows = Math.Clamp(rows, 0, 100);
+        var sheetElement = Data.Parent!;
+
+        var views = sheetElement.Element(D.Sheet + "sheetViews");
+        if (views is null)
+        {
+            if (rows == 0) return;
+            views = new XElement(D.Sheet + "sheetViews");
+            // sheetViews goes after sheetPr and dimension, and before sheetFormatPr, cols and sheetData.
+            var before = sheetElement.Element(D.Sheet + "sheetFormatPr")
+                      ?? sheetElement.Element(D.Sheet + "cols")
+                      ?? sheetElement.Element(D.Sheet + "sheetData");
+            if (before is not null) before.AddBeforeSelf(views); else sheetElement.Add(views);
+        }
+
+        var view = views.Elements(D.Sheet + "sheetView").FirstOrDefault();
+        if (view is null)
+        {
+            if (rows == 0) return;
+            view = new XElement(D.Sheet + "sheetView", new XAttribute("workbookViewId", 0));
+            views.Add(view);
+        }
+
+        view.Element(D.Sheet + "pane")?.Remove();
+        if (rows > 0)
+        {
+            var pane = new XElement(D.Sheet + "pane",
+                new XAttribute("ySplit", rows),
+                new XAttribute("topLeftCell", "A" + (rows + 1)),
+                new XAttribute("activePane", "bottomLeft"),
+                new XAttribute("state", "frozen"));
+            view.AddFirst(pane);   // pane is the first child of a sheetView
+        }
+        _dirty = true;
+    }
+
+    /// <summary>How wide this column has to be for its longest value to fit, in the same character units.</summary>
+    public double WidestChars(int column, int limitRows = 2000)
+    {
+        double widest = 0;
+        int seen = 0;
+        foreach (var row in Data.Elements(D.Sheet + "row"))
+        {
+            if (++seen > limitRows) break;
+            foreach (var c in row.Elements(D.Sheet + "c"))
+            {
+                if (!CellRef.TryParse((string?)c.Attribute("r") ?? "", out var r) || r.Column != column) continue;
+                var shown = Read(r).Display;
+                if (shown.Length > widest) widest = shown.Length;
+            }
+        }
+        // A character unit is about one digit wide; a little padding stops the text touching the next column.
+        return widest == 0 ? _defaultWidth : Math.Clamp(widest + 1.5, 4, 120);
+    }
+
     private List<(int, int, double)> ReadWidths()
     {
         var list = new List<(int, int, double)>();

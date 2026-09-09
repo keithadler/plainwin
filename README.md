@@ -39,7 +39,7 @@ The other four fifths are not dropped. They are kept. Plain is not a smaller Off
 | Download | an installer and about 4 GB on disk | one exe, under 60 MB |
 | Install | installer, sign-in, first-run tour | put it anywhere and double-click |
 | Account | Microsoft account | none |
-| Network | always | no network code at all |
+| Network | always | a daily version check you can turn off, and nothing else |
 | Charts, macros, pivot tables | edits them | keeps them byte for byte |
 
 ## What it does
@@ -117,7 +117,9 @@ Exit codes: 0 fine, 1 something to look at, 2 problem, 64 usage.
 
 ## Privacy
 
-There is no network code in Plain at all. No account, no telemetry, no update check, nothing to turn off. See [PRIVACY.md](PRIVACY.md).
+No account, no telemetry, no analytics, and nothing about you or your files ever leaves the machine.
+
+The one exception, and it is the only network request Plain makes: once a day it asks GitHub what the latest version is, and if there is a newer one it says so in the status bar. Nothing downloads or installs itself. Turn it off in Reading and settings and Plain reaches the network never. The console twin never checks at all. See [PRIVACY.md](PRIVACY.md).
 
 ## Building it yourself
 
