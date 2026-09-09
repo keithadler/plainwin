@@ -102,6 +102,54 @@ public static class DocSuite
                 outlined.Any(b => b.Text == "An actual bullet" && b.Kind == BlockKind.ListItem));
         }
 
+        // ---- a new document has one paragraph, and has to be able to gain more ----
+        // Without this a new document had exactly one paragraph for ever: you could type into it and nowhere else.
+        {
+            var where_ = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                "plain-paras-" + Guid.NewGuid().ToString("N") + ".docx");
+            var file = PlainFile.Create(where_);
+            var document = file.Document!;
+
+            s.Check("a new document starts with one paragraph", document.Blocks().Count() == 1);
+            s.Check("and it is empty", document.Blocks().First().Text.Length == 0);
+
+            document.SetText(0, "The first line.");
+            s.Check("a paragraph can be added after it", document.InsertParagraph(0) is TableRows.Done);
+            s.Check("and there are two now", document.Blocks().Count() == 2);
+            s.Check("the first still says what it said", document.Read(0).Text == "The first line.");
+            s.Check("and the new one is empty", document.Read(1).Text.Length == 0);
+
+            document.SetText(1, "The second line.");
+            // The model holds the changes until it is flushed into the package; reading the package without
+            // flushing reads the file as it was before any of this.
+            file.Flush();
+            var back = PlainFile.Read(file.Package.ToBytes(), where_).Document!;
+            s.Check("both survive a save", back.Blocks().Count() >= 2);
+            s.Check("with what was typed into them",
+                back.Read(0).Text == "The first line." && back.Read(1).Text == "The second line.");
+
+            s.Check("a paragraph can be taken out", back.DeleteParagraph(1) is TableRows.Done);
+            s.Check("and there is one left", back.Blocks().Count() == 1);
+            s.Check("the last one cannot be taken out", back.DeleteParagraph(0) is TableRows.Refused);
+        }
+
+        // A paragraph added after a heading is a heading: it takes its shape from the one it follows, which is
+        // what pressing Return in a word processor does.
+        if (!Fixtures.Missing(s, "doc.docx"))
+        {
+            var file = PlainFile.Open(Fixtures.Copy("doc.docx"));
+            var document = file.Document!;
+            var headingAt = document.Blocks().FirstOrDefault(b => b.IsHeading);
+            if (headingAt is not null)
+            {
+                document.InsertParagraph(headingAt.Index);
+                var added = document.Read(headingAt.Index + 1);
+                s.Check("a paragraph added after a heading is a heading too", added.Kind == headingAt.Kind);
+                s.Check("and has no words in it", added.Text.Length == 0);
+            }
+            else s.Check("that fixture has no heading to add after; skipped", true);
+        }
+
         return s;
     }
 }

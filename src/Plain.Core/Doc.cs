@@ -102,6 +102,57 @@ public sealed class Document
     /// copy of a neighbour with its words taken out, so it keeps the borders, shading and widths the table uses.
     /// Building one from scratch would produce a row that looked nothing like the table it joined.
     /// </summary>
+    /// <summary>
+    /// Put a new empty paragraph in after the one given, taking its shape from the paragraph it follows.
+    ///
+    /// A new document has exactly one paragraph in it, and without this it has exactly one for ever: you could
+    /// type into it and nowhere else. The new one copies its neighbour's properties and none of its words, so a
+    /// paragraph added after a heading is a heading and one added after a bullet is a bullet, which is what
+    /// pressing Return in a word processor does.
+    ///
+    /// It refuses inside a table, where a paragraph is a cell and adding one changes the shape of the table
+    /// rather than the text.
+    /// </summary>
+    public TableRows.Result InsertParagraph(int after)
+    {
+        if (_paragraphs.Count == 0) return new TableRows.Refused("This document has no paragraphs to add to.");
+
+        int at = Math.Clamp(after, -1, _paragraphs.Count - 1);
+        var neighbour = _paragraphs[Math.Max(0, at)];
+        if (neighbour.Ancestors(D.Word + "tbl").Any())
+            return new TableRows.Refused("That paragraph is in a table. Add a row to the table instead.");
+
+        var fresh = new XElement(neighbour);
+        // The shape without the words: properties stay, everything that carries text goes.
+        foreach (var name in new[] { "r", "ins", "del", "hyperlink", "bookmarkStart", "bookmarkEnd", "commentRangeStart", "commentRangeEnd" })
+            fresh.Elements(D.Word + name).Remove();
+
+        if (after < 0) neighbour.AddBeforeSelf(fresh); else neighbour.AddAfterSelf(fresh);
+
+        _dirty = true;
+        Index();
+        return new TableRows.Done($"A paragraph is in, making {_paragraphs.Count}.");
+    }
+
+    /// <summary>
+    /// Take a paragraph out. The last one cannot go: a document with no paragraphs at all is one Word will not
+    /// open, and leaving somebody with a file they cannot reopen is worse than refusing.
+    /// </summary>
+    public TableRows.Result DeleteParagraph(int index)
+    {
+        if (index < 0 || index >= _paragraphs.Count) return new TableRows.Refused($"There is no paragraph {index + 1}.");
+        if (_paragraphs.Count <= 1) return new TableRows.Refused("A document has to have a paragraph in it.");
+
+        var paragraph = _paragraphs[index];
+        if (paragraph.Ancestors(D.Word + "tbl").Any())
+            return new TableRows.Refused("That paragraph is in a table. Take out a row of the table instead.");
+
+        paragraph.Remove();
+        _dirty = true;
+        Index();
+        return new TableRows.Done($"That paragraph is out, leaving {_paragraphs.Count}.");
+    }
+
     public TableRows.Result InsertRow(int table, int after)
     {
         var rows = RowsOf(table);
