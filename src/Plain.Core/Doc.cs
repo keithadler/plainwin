@@ -150,13 +150,26 @@ public sealed class Document
         var p = _paragraphs[index];
         string style = (string?)p.Element(D.Word + "pPr")?.Element(D.Word + "pStyle")?.Attribute(D.Word + "val") ?? "";
         bool inTable = p.Ancestors(D.Word + "tbl").Any();
-        bool numbered = p.Element(D.Word + "pPr")?.Element(D.Word + "numPr") is not null;
+        var properties = p.Element(D.Word + "pPr");
+
+        // A paragraph can carry numbering that says "none". numId 0 means exactly that, and treating a
+        // paragraph that has one as a list item turns every heading LibreOffice writes into a bullet.
+        var numbering = properties?.Element(D.Word + "numPr");
+        bool numbered = numbering is not null
+                     && Xml.Int(numbering.Element(D.Word + "numId")?.Attribute(D.Word + "val"), 1) != 0;
+
+        // Word marks a heading by its style, but a heading can also say its level outright, which is what
+        // LibreOffice writes when it exports one. Reading only the style name misses those entirely.
+        int outline = Xml.Int(properties?.Element(D.Word + "outlineLvl")?.Attribute(D.Word + "val"), -1);
 
         var kind = inTable ? BlockKind.TableCell
-            : numbered ? BlockKind.ListItem
             : style.Contains("Heading1", StringComparison.OrdinalIgnoreCase) || style is "Title" ? BlockKind.Heading1
             : style.Contains("Heading2", StringComparison.OrdinalIgnoreCase) ? BlockKind.Heading2
             : style.Contains("Heading3", StringComparison.OrdinalIgnoreCase) ? BlockKind.Heading3
+            : outline == 0 ? BlockKind.Heading1
+            : outline == 1 ? BlockKind.Heading2
+            : outline >= 2 ? BlockKind.Heading3
+            : numbered ? BlockKind.ListItem
             : BlockKind.Paragraph;
 
         var place = _place.TryGetValue(p, out var found) ? found : (-1, -1, -1);
