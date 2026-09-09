@@ -95,6 +95,66 @@ public sealed class Formula
         return _lookup(range.Sheet, new CellRef(range.ColumnMin, range.RowMin));
     }
 
+    /// <summary>One cell of a range, counted from its top left corner.</summary>
+    private Value At(RefRange range, int rowOffset, int columnOffset)
+    {
+        int r = range.RowMin + rowOffset, c = range.ColumnMin + columnOffset;
+        if (r > range.RowMax || c > range.ColumnMax || rowOffset < 0 || columnOffset < 0) return Value.Error("#REF!");
+        return _lookup(range.Sheet, new CellRef(c, r));
+    }
+
+    private static int Rows(RefRange range) => range.RowMax - range.RowMin + 1;
+    private static int Columns(RefRange range) => range.ColumnMax - range.ColumnMin + 1;
+
+    private RefRange RangeOf(Operand operand) =>
+        operand.Range ?? throw new NotSupportedException();   // a function wanting a range was handed a single value
+
+    /// <summary>
+    /// Does a value satisfy a criterion of the kind SUMIF and COUNTIF take: a number, a comparison like "&gt;100",
+    /// or text with * and ? standing for any run and any one character.
+    /// </summary>
+    private static bool Meets(Value value, Value criterion)
+    {
+        string text = criterion.AsText().Trim();
+        string op = "";
+        foreach (var candidate in new[] { "<>", "<=", ">=", "<", ">", "=" })
+            if (text.StartsWith(candidate, StringComparison.Ordinal)) { op = candidate; text = text[candidate.Length..].Trim(); break; }
+
+        if (double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var wanted)
+            && value.AsNumber(out var have) && value.Kind is not Value.Sort.Text)
+        {
+            return op switch
+            {
+                "<" => have < wanted, "<=" => have <= wanted,
+                ">" => have > wanted, ">=" => have >= wanted,
+                "<>" => have != wanted, _ => have == wanted,
+            };
+        }
+
+        string actual = value.AsText();
+        bool same = Like(actual, text);
+        return op == "<>" ? !same : same;
+    }
+
+    /// <summary>Text matching with * and ?, the way a spreadsheet criterion means them.</summary>
+    private static bool Like(string text, string pattern)
+    {
+        if (!pattern.Contains('*') && !pattern.Contains('?'))
+            return string.Equals(text, pattern, StringComparison.CurrentCultureIgnoreCase);
+
+        var built = new System.Text.StringBuilder("^");
+        foreach (char c in pattern)
+            built.Append(c switch { '*' => ".*", '?' => ".", _ => System.Text.RegularExpressions.Regex.Escape(c.ToString()) });
+        built.Append('$');
+        return System.Text.RegularExpressions.Regex.IsMatch(text, built.ToString(),
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant,
+            TimeSpan.FromMilliseconds(200));
+    }
+
+    private static readonly DateTime Epoch = new(1899, 12, 30);
+    private static double Serial(DateTime when) => (when.Date - Epoch).TotalDays;
+    private static DateTime FromSerial(double serial) => Epoch.AddDays(serial);
+
     private IEnumerable<Value> Spread(Operand operand)
     {
         if (operand.Range is not { } range) { yield return operand.Value; yield break; }
@@ -403,6 +463,140 @@ public sealed class Formula
                 case "MID": { var t = Str(0); int from = (int)One(1) - 1; return Value.Of(Cut(t, from, (int)One(2))); }
                 case "CONCATENATE": return Value.Of(string.Concat(All().Select(v => v.AsText())));
 
+                // ---- looking things up ----
+                case "VLOOKUP" or "HLOOKUP":
+                {
+                    bool vertical = name == "VLOOKUP";
+                    var needle = Flatten(args[0]);
+                    var table = RangeOf(args[1]);
+                    int index = (int)One(2) - 1;
+                    bool approximate = args.Count < 4 || (Flatten(args[3]).AsNumber(out var flag) && flag != 0);
+                    if (index < 0) return Value.Error("#VALUE!");
+
+                    int length = vertical ? Rows(table) : Columns(table);
+                    int best = -1;
+                    for (int i = 0; i < length; i++)
+                    {
+                        var candidate = vertical ? At(table, i, 0) : At(table, 0, i);
+                        if (!approximate)
+                        {
+                            if (Same(candidate, needle)) { best = i; break; }
+                            continue;
+                        }
+                        // Approximate: the last one not greater than what is wanted, as the table is meant to be sorted.
+                        if (Compare(candidate, needle, "<=").Number != 0) best = i; else break;
+                    }
+                    if (best < 0) return Value.Error("#N/A");
+                    var found = vertical ? At(table, best, index) : At(table, index, best);
+                    return found.Kind == Value.Sort.Blank ? Value.Of(0) : found;
+                }
+
+                case "XLOOKUP":
+                {
+                    var needle = Flatten(args[0]);
+                    var haystack = RangeOf(args[1]);
+                    var results = RangeOf(args[2]);
+                    int length = Math.Max(Rows(haystack), Columns(haystack));
+                    bool down = Rows(haystack) >= Columns(haystack);
+                    for (int i = 0; i < length; i++)
+                    {
+                        var candidate = down ? At(haystack, i, 0) : At(haystack, 0, i);
+                        if (!Same(candidate, needle)) continue;
+                        return Rows(results) >= Columns(results) ? At(results, i, 0) : At(results, 0, i);
+                    }
+                    return args.Count > 3 ? Flatten(args[3]) : Value.Error("#N/A");
+                }
+
+                case "MATCH":
+                {
+                    var needle = Flatten(args[0]);
+                    var haystack = RangeOf(args[1]);
+                    int kind = args.Count > 2 ? (int)One(2) : 1;
+                    int length = Math.Max(Rows(haystack), Columns(haystack));
+                    bool down = Rows(haystack) >= Columns(haystack);
+                    int best = -1;
+                    for (int i = 0; i < length; i++)
+                    {
+                        var candidate = down ? At(haystack, i, 0) : At(haystack, 0, i);
+                        if (kind == 0) { if (Same(candidate, needle)) return Value.Of(i + 1); continue; }
+                        if (kind > 0) { if (Compare(candidate, needle, "<=").Number != 0) best = i; else break; }
+                        else { if (Compare(candidate, needle, ">=").Number != 0) best = i; else break; }
+                    }
+                    return best < 0 ? Value.Error("#N/A") : Value.Of(best + 1);
+                }
+
+                case "INDEX":
+                {
+                    var table = RangeOf(args[0]);
+                    int row = (int)One(1);
+                    int column = args.Count > 2 ? (int)One(2) : 1;
+                    // A single row or column can be indexed with one number.
+                    if (args.Count == 2 && Rows(table) == 1) { column = row; row = 1; }
+                    if (row < 1 || column < 1) return Value.Error("#VALUE!");
+                    return At(table, row - 1, column - 1);
+                }
+
+                // ---- totals with a condition ----
+                case "SUMIF" or "AVERAGEIF" or "COUNTIF":
+                {
+                    var over = RangeOf(args[0]);
+                    var criterion = Flatten(args[1]);
+                    var adding = name == "COUNTIF" ? over : args.Count > 2 ? RangeOf(args[2]) : over;
+                    double total = 0; int matched = 0;
+                    for (int r = 0; r < Rows(over); r++)
+                        for (int c = 0; c < Columns(over); c++)
+                        {
+                            if (!Meets(At(over, r, c), criterion)) continue;
+                            matched++;
+                            if (name == "COUNTIF") continue;
+                            if (At(adding, r, c).AsNumber(out var n)) total += n;
+                        }
+                    if (name == "COUNTIF") return Value.Of(matched);
+                    if (name == "SUMIF") return Value.Of(total);
+                    return matched == 0 ? Value.Error("#DIV/0!") : Value.Of(total / matched);
+                }
+
+                case "SUMIFS" or "COUNTIFS" or "AVERAGEIFS":
+                {
+                    bool counting = name == "COUNTIFS";
+                    var adding = counting ? RangeOf(args[0]) : RangeOf(args[0]);
+                    int first = counting ? 0 : 1;
+                    var pairs = new List<(RefRange Over, Value Criterion)>();
+                    for (int i = first; i + 1 < args.Count; i += 2)
+                        pairs.Add((RangeOf(args[i]), Flatten(args[i + 1])));
+                    if (pairs.Count == 0) throw new NotSupportedException();
+
+                    var shape = pairs[0].Over;
+                    double total = 0; int matched = 0;
+                    for (int r = 0; r < Rows(shape); r++)
+                        for (int c = 0; c < Columns(shape); c++)
+                        {
+                            if (!pairs.All(p => Meets(At(p.Over, r, c), p.Criterion))) continue;
+                            matched++;
+                            if (counting) continue;
+                            if (At(adding, r, c).AsNumber(out var n)) total += n;
+                        }
+                    if (counting) return Value.Of(matched);
+                    if (name == "SUMIFS") return Value.Of(total);
+                    return matched == 0 ? Value.Error("#DIV/0!") : Value.Of(total / matched);
+                }
+
+                // ---- dates ----
+                case "TODAY": return Value.Of(Serial(DateTime.Today));
+                case "NOW": return Value.Of((DateTime.Now - Epoch).TotalDays);
+                case "DATE": return Value.Of(Serial(new DateTime((int)One(0), 1, 1).AddMonths((int)One(1) - 1).AddDays(One(2) - 1)));
+                case "YEAR": return Value.Of(FromSerial(One(0)).Year);
+                case "MONTH": return Value.Of(FromSerial(One(0)).Month);
+                case "DAY": return Value.Of(FromSerial(One(0)).Day);
+                case "WEEKDAY": return Value.Of((int)FromSerial(One(0)).DayOfWeek + 1);
+                case "DAYS": return Value.Of(One(0) - One(1));
+                case "EDATE": return Value.Of(Serial(FromSerial(One(0)).AddMonths((int)One(1))));
+                case "EOMONTH":
+                {
+                    var when = FromSerial(One(0)).AddMonths((int)One(1));
+                    return Value.Of(Serial(new DateTime(when.Year, when.Month, DateTime.DaysInMonth(when.Year, when.Month))));
+                }
+
                 default: throw new NotSupportedException();   // a function Plain has never met
             }
         }
@@ -422,6 +616,14 @@ public sealed class Formula
     {
         public Value Value { get; }
         public ErrorValue(Value value) { Value = value; }
+    }
+
+    /// <summary>Two values equal for the purpose of a lookup: numbers by value, text without regard to case.</summary>
+    private static bool Same(Value a, Value b)
+    {
+        if (a.Kind is Value.Sort.Text || b.Kind is Value.Sort.Text)
+            return string.Equals(a.AsText(), b.AsText(), StringComparison.CurrentCultureIgnoreCase);
+        return a.AsNumber(out var x) && b.AsNumber(out var y) && x == y;
     }
 
     private static Value Arithmetic(Value a, Value b, char op)

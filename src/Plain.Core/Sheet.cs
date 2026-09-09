@@ -167,6 +167,12 @@ public sealed class Workbook
                 formulas.Add((i, reference, Refs.Parse(formula).ToArray()));
 
         var stale = new HashSet<(int, CellRef)>();
+
+        // A formula somebody has just typed needs working out even when it reads nothing that changed - typing
+        // "=1+1" into a cell must show 2, not stay empty waiting for something else to move.
+        foreach (var formula in formulas)
+            if (dirty.TryGetValue(formula.Sheet, out var touched) && touched.Contains(formula.Ref))
+                stale.Add((formula.Sheet, formula.Ref));
         // Each pass can only make more cells stale, so this settles in at most one pass per formula.
         for (int pass = 0; pass <= formulas.Count; pass++)
         {
@@ -540,6 +546,13 @@ public sealed class Sheet
         else if (typed.Length == 0)
         {
             // An emptied cell keeps its formatting and loses its content, the way Delete behaves in Excel.
+        }
+        else if (typed.StartsWith('\''))
+        {
+            // A leading apostrophe is the old way of saying "this is text, whatever it looks like".
+            c.SetAttributeValue("t", "s");
+            c.Add(new XElement(D.Sheet + "v", _book.InternString(typed[1..]).ToString(CultureInfo.InvariantCulture)));
+            _book.RequestFullRecalculation();
         }
         else if (double.TryParse(typed, NumberStyles.Float, CultureInfo.InvariantCulture, out var number)
                  && !typed.Contains(' ') && double.IsFinite(number))

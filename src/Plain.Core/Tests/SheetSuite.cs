@@ -46,6 +46,8 @@ public static class SheetSuite
             sh.Set("B2", "500000");
             sh.Set("F2", "=B2*2");
             sh.Set("A9", "added by a test");
+            sh.Set("G9", "=1+1");                 // reads nothing at all
+            sh.Set("G10", "=SUM(B2:B4)");         // reads B2, which this test changed to 500000
             w.Save(work);
 
             var again = new Workbook(OpcPackage.Open(work));
@@ -63,6 +65,8 @@ public static class SheetSuite
             s.Check("that total keeps its formula", (s2.Read("B5").Formula ?? "").Contains("SUM"));
             s.Equal("a formula's own text survives", "=B2*2", s2.Read("F2").Formula);
             s.Equal("a new formula is worked out", "1000000", s2.Read("F2").Raw);
+            s.Equal("a formula that reads nothing is still worked out", "2", s2.Read("G9").Raw);
+            s.Equal("and one reading cells the same edit touched", "964700", s2.Read("G10").Raw);
             s.Equal("and shows its number, not itself", "1000000", s2.Read("F2").Display);
             s.Check("a plain number keeps its value", s2.Read("C2").Raw.Length > 0);
 
