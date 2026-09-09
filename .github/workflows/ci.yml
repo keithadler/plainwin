@@ -50,3 +50,5 @@ jobs:
         run: |
           dotnet build src/Plain.Core/Plain.Core.csproj -c Release --nologo
           dotnet run --project src/Plain.Selftest -c Release
+      - name: The README's claims have to be true
+        run: bash tests/docs.sh
