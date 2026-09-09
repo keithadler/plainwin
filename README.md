@@ -4,9 +4,9 @@ Opens Word, Excel and PowerPoint files. Edits the things you actually change. Ne
 
 ## Download
 
-**[Plain-for-Windows-1.4.2-x64.exe](https://github.com/keithadler/plainwin/releases/latest/download/Plain-for-Windows-1.4.2-x64.exe)** — for ordinary Intel and AMD PCs
+**[Plain-for-Windows-1.4.3-x64.exe](https://github.com/keithadler/plainwin/releases/latest/download/Plain-for-Windows-1.4.3-x64.exe)** — for ordinary Intel and AMD PCs
 
-**[Plain-for-Windows-1.4.2-arm64.exe](https://github.com/keithadler/plainwin/releases/latest/download/Plain-for-Windows-1.4.2-arm64.exe)** — for Windows on ARM
+**[Plain-for-Windows-1.4.3-arm64.exe](https://github.com/keithadler/plainwin/releases/latest/download/Plain-for-Windows-1.4.3-arm64.exe)** — for Windows on ARM
 
 Then:
 
@@ -22,7 +22,7 @@ are built by [a public job](.github/workflows/release.yml) from a commit you can
 them.
 
 ```powershell
-Get-FileHash "Plain-for-Windows-1.4.2-x64.exe" -Algorithm SHA256
+Get-FileHash "Plain-for-Windows-1.4.3-x64.exe" -Algorithm SHA256
 ```
 
 ![Plain showing a workbook](docs/screenshots/book.png)
@@ -119,7 +119,7 @@ folder beside it. It then leaves nothing at all on the machine.
 
 | | |
 |---|---|
-| Checks in the engine | 991 |
+| Checks in the engine | 995 |
 | End to end through the console | 52 |
 | Driving the real window with real keystrokes | 29 |
 | Real business documents round tripped byte for byte | 39 of 39 |
@@ -131,7 +131,7 @@ That is what `dotnet run --project src/Plain.Selftest` gives you on a fresh clon
 adds twenty-nine more that need real content to run:
 
 ```
-PLAIN_CORPUS=docs/demo dotnet run --project src/Plain.Selftest      # 1,020
+PLAIN_CORPUS=docs/demo dotnet run --project src/Plain.Selftest      # 1,024
 ```
 
 All of it runs on Windows on ARM and on x64. `PLAIN_CORPUS=<folder>` also works on a folder of your own documents,
@@ -140,8 +140,8 @@ and demands a byte-identical round trip on every one.
 ## The console twin
 
 `plain.exe` is the same program without a window, for scripts and scheduled jobs.
-[x64](https://github.com/keithadler/plainwin/releases/latest/download/plain-1.4.2-x64.exe) ·
-[arm64](https://github.com/keithadler/plainwin/releases/latest/download/plain-1.4.2-arm64.exe)
+[x64](https://github.com/keithadler/plainwin/releases/latest/download/plain-1.4.3-x64.exe) ·
+[arm64](https://github.com/keithadler/plainwin/releases/latest/download/plain-1.4.3-arm64.exe)
 
 **Reading**
 

@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.4.3, 2026-09-09
+
+**Headings written by LibreOffice were shown as bullets.** A document exported from LibreOffice, or from anything else that writes a heading the same way, lost its entire outline: every heading appeared as a list item, and no heading was styled as one.
+
+Two things were read wrongly. A paragraph can carry numbering whose id is 0, which means "no numbering at all", and treating any numbering element as a list made those list items. And a heading can declare its level outright with `outlineLvl` rather than by being styled "Heading 1", which is exactly what LibreOffice writes; reading only the style name missed every one.
+
+Found while building Plain for Mac, which shows the same blocks the same way because it is the same engine. A document of headings and bullets came out as a document of nothing but bullets.
+
+Nothing else changed.
+
 ## 1.4.2, 2026-09-09
 
 Ten things that are not about editing documents.
