@@ -65,8 +65,19 @@ jobs:
             $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
             "$hash  $($_.Name)"
           }
-          $lines | Set-Content dist/SHA256SUMS.txt -Encoding ascii
+          # Written with line feeds, not the carriage returns PowerShell would add. A sums file with carriage
+          # returns in it is refused by shasum and sha256sum everywhere but Windows, because the filename it looks
+          # for ends up with an invisible character on the end. A checksums file nobody can check is worse than
+          # none, because it looks like it can be.
+          [IO.File]::WriteAllText("$PWD/dist/SHA256SUMS.txt", ($lines -join "`n") + "`n", [Text.UTF8Encoding]::new($false))
           Get-Content dist/SHA256SUMS.txt
+
+      - name: Check the sums file is one other tools can actually read
+        shell: bash
+        run: |
+          cd dist
+          if grep -q $'\r' SHA256SUMS.txt; then echo "SHA256SUMS.txt has carriage returns in it"; exit 1; fi
+          sha256sum -c SHA256SUMS.txt
 
       - name: Attach them to the release
         shell: pwsh
