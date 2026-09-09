@@ -42,6 +42,15 @@ public partial class ReadingSettings : Window
         KeepRecovery.IsChecked = _settings.KeepRecovery;
         CheckUpdates.IsChecked = _settings.CheckForUpdates;
 
+        foreach (var (name, _, _) in Plain.Core.PageSetup.Papers) PaperBox.Items.Add(name);
+        PaperBox.SelectedItem = _settings.Paper;
+        if (PaperBox.SelectedItem is null) PaperBox.SelectedIndex = 0;
+        LandscapeBox.IsChecked = _settings.Landscape;
+        foreach (var mm in Margins) MarginBox.Items.Add(Describe(mm));
+        MarginBox.SelectedItem = Describe(Nearest(_settings.MarginMm));
+        HeaderBox.Text = _settings.PageHeader;
+        FooterBox.Text = _settings.PageFooter;
+
         FontPicker.SelectionChanged += (_, _) => ShowSample();
         PaperPicker.SelectionChanged += (_, _) => ShowSample();
         SpacingPicker.SelectionChanged += (_, _) => ShowSample();
@@ -79,6 +88,11 @@ public partial class ReadingSettings : Window
         WidthSlider.Value = 860;
         KeepRecovery.IsChecked = true;
         CheckUpdates.IsChecked = true;
+        PaperBox.SelectedIndex = 0;
+        LandscapeBox.IsChecked = false;
+        MarginBox.SelectedItem = Describe(20);
+        HeaderBox.Text = "";
+        FooterBox.Text = "Page {page} of {pages}";
         ShowSample();
     }
 
@@ -90,6 +104,25 @@ public partial class ReadingSettings : Window
         _settings.TextWidth = WidthSlider.Value;
         _settings.KeepRecovery = KeepRecovery.IsChecked == true;
         _settings.CheckForUpdates = CheckUpdates.IsChecked == true;
+        _settings.Paper = PaperBox.SelectedItem as string ?? "A4";
+        _settings.Landscape = LandscapeBox.IsChecked == true;
+        _settings.MarginMm = Margins[Math.Max(0, MarginBox.SelectedIndex)];
+        _settings.PageHeader = HeaderBox.Text.Trim();
+        _settings.PageFooter = FooterBox.Text.Trim();
         DialogResult = true;
     }
+
+    /// <summary>Edges people actually ask for, in millimetres, rather than a box to type a number into.</summary>
+    private static readonly double[] Margins = { 10, 15, 20, 25, 30 };
+
+    private static string Describe(double mm) => mm switch
+    {
+        10 => "Narrow (10 mm)",
+        15 => "Slim (15 mm)",
+        25 => "Roomy (25 mm)",
+        30 => "Wide (30 mm)",
+        _ => "Normal (20 mm)",
+    };
+
+    private static double Nearest(double mm) => Margins.OrderBy(m => Math.Abs(m - mm)).First();
 }

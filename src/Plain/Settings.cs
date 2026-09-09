@@ -37,6 +37,18 @@ public sealed class Settings
     /// <summary>A version already seen and mentioned, so the same one is not announced every day.</summary>
     public string UpdateSeen { get; set; } = "";
 
+    /// <summary>How a page is laid out when printing or writing a PDF.</summary>
+    public string Paper { get; set; } = "A4";
+    public bool Landscape { get; set; }
+    public double MarginMm { get; set; } = 20;
+    public string PageHeader { get; set; } = "";
+    public string PageFooter { get; set; } = "Page {page} of {pages}";
+
+    public Plain.Core.PageSetup Page() => new()
+    {
+        Paper = Paper, Landscape = Landscape, MarginMm = MarginMm, Header = PageHeader, Footer = PageFooter,
+    };
+
     /// <summary>Papers people asked for by name, plus following the theme.</summary>
     public static readonly (string Name, string Hex)[] Papers =
     {

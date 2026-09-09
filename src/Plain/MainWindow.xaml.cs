@@ -861,7 +861,7 @@ public partial class MainWindow : Window
         try
         {
             _active.File.Flush();
-            var result = PdfExport.Build(_active.File, Path.GetFileNameWithoutExtension(_active.FilePath));
+            var result = PdfExport.Build(_active.File, Path.GetFileNameWithoutExtension(_active.FilePath), _settings.Page());
             File.WriteAllBytes(dialog.FileName, result.Bytes);
             Say($"Wrote {Path.GetFileName(dialog.FileName)}: {result.Pages} page{(result.Pages == 1 ? "" : "s")}." +
                 (result.Warning is null ? "" : "  " + result.Warning));

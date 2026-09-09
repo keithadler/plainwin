@@ -37,6 +37,27 @@
     <TextBlock Text="A copy is kept every half minute beside the settings, and offered back next time Plain starts."
                TextWrapping="Wrap" FontSize="11.5" Foreground="{DynamicResource Ink3}" Margin="22,0,0,18"/>
 
+    <TextBlock Text="Printing and PDF" FontWeight="SemiBold" Margin="0,4,0,6"/>
+    <DockPanel Margin="0,0,0,8" LastChildFill="False">
+      <TextBlock Text="Paper" VerticalAlignment="Center" Width="70" Foreground="{DynamicResource Ink2}"/>
+      <ComboBox x:Name="PaperBox" Width="120" DockPanel.Dock="Left"/>
+      <CheckBox x:Name="LandscapeBox" Content="Sideways" VerticalAlignment="Center" Margin="16,0,0,0" DockPanel.Dock="Left"/>
+    </DockPanel>
+    <DockPanel Margin="0,0,0,8" LastChildFill="False">
+      <TextBlock Text="Edges" VerticalAlignment="Center" Width="70" Foreground="{DynamicResource Ink2}"/>
+      <ComboBox x:Name="MarginBox" Width="120" DockPanel.Dock="Left"/>
+    </DockPanel>
+    <DockPanel Margin="0,0,0,8" LastChildFill="True">
+      <TextBlock Text="Top line" VerticalAlignment="Center" Width="70" Foreground="{DynamicResource Ink2}"/>
+      <TextBox x:Name="HeaderBox" Padding="4,3"/>
+    </DockPanel>
+    <DockPanel Margin="0,0,0,4" LastChildFill="True">
+      <TextBlock Text="Bottom line" VerticalAlignment="Center" Width="70" Foreground="{DynamicResource Ink2}"/>
+      <TextBox x:Name="FooterBox" Padding="4,3"/>
+    </DockPanel>
+    <TextBlock Text="{}{page} and {pages} are filled in. Plain lays the text out on its own page: it does not know where Word would break one, and does not pretend to."
+               TextWrapping="Wrap" FontSize="11.5" Foreground="{DynamicResource Ink3}" Margin="70,0,0,18"/>
+
     <CheckBox x:Name="CheckUpdates" Content="Check GitHub once a day for a new version"
               Margin="0,0,0,4"/>
     <TextBlock Text="The only thing Plain ever sends over a network. It sends nothing about you or your files, downloads nothing, and installs nothing: it puts a line in the status bar and you decide. Turn this off and Plain makes no network request at all."

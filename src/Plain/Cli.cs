@@ -23,6 +23,14 @@ public static class Cli
     /// <summary>Was this switch given? Switches are compared exactly, so --case is not --Case.</summary>
     private static bool Flag(IReadOnlyList<string> args, string name) => args.Contains(name);
 
+    /// <summary>What followed this switch, or nothing if it was not given or was given nothing.</summary>
+    private static string? Value(IReadOnlyList<string> args, string name)
+    {
+        for (int i = 0; i < args.Count - 1; i++)
+            if (args[i] == name && !args[i + 1].StartsWith("--", StringComparison.Ordinal)) return args[i + 1];
+        return null;
+    }
+
     private const string Usage = """
         Plain for Windows - opens Word, Excel and PowerPoint files, edits the basics,
         and never damages what it doesn't understand.
@@ -31,6 +39,9 @@ public static class Cli
           plain width <file> <col> <chars|fit> [sheet]   set a column's width, or fit it to its contents
           plain freeze <file> <rows> [sheet]             keep this many rows at the top on screen
           plain sort <file> <range> <col> [down] [sheet] sort rows, refusing if a formula would be broken
+
+        For pdf: --paper A4|Letter|Legal|A3|A5  --landscape  --margin <mm>
+                 --header "<text>"  --footer "<text>"   with {page} and {pages}
           plain info <file>                what the file is, and what Plain keeps untouched
           plain parts <file> [--json]      every part, and whether Plain shows it or preserves it
           plain text <file>                the text, as plain text
@@ -430,7 +441,16 @@ public static class Cli
                     if (rest.Count < 1) { err.WriteLine("pdf <file> [out.pdf]"); return 64; }
                     var file = PlainFile.Open(rest[0]);
                     var to = rest.Count > 1 ? rest[1] : Path.ChangeExtension(file.Path, ".pdf");
-                    var result = PdfExport.Build(file, Path.GetFileNameWithoutExtension(file.Path));
+                    var page = PageSetup.Default with
+                    {
+                        Paper = Value(args, "--paper") ?? "A4",
+                        Landscape = Flag(args, "--landscape"),
+                        MarginMm = double.TryParse(Value(args, "--margin"), System.Globalization.NumberStyles.Float,
+                            System.Globalization.CultureInfo.InvariantCulture, out var mm) ? mm : 20,
+                        Header = Value(args, "--header") ?? "",
+                        Footer = Value(args, "--footer") ?? "Page {page} of {pages}",
+                    };
+                    var result = PdfExport.Build(file, Path.GetFileNameWithoutExtension(file.Path), page);
                     File.WriteAllBytes(to, result.Bytes);
                     o.WriteLine($"wrote {Path.GetFileName(to)}: {result.Pages} page{(result.Pages == 1 ? "" : "s")}, {result.Bytes.Length / 1024} KB");
                     if (result.Warning is not null) err.WriteLine(result.Warning);

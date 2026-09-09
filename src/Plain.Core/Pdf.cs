@@ -30,12 +30,60 @@ public sealed class Pdf
 
     public double TextWidth => _width - 2 * _margin;
 
+    /// <summary>
+    /// A line at the top and bottom of every page. Written when the file is put together rather than as each page
+    /// fills, because "page 3 of 7" cannot be written until there is a seventh page. Use {page} and {pages}.
+    /// </summary>
+    public string? Header { get; set; }
+    public string? Footer { get; set; }
+
+    /// <summary>The header and footer for one page, as its own bit of content appended to that page.</summary>
+    private byte[] Furniture(int page, int total)
+    {
+        if (string.IsNullOrEmpty(Header) && string.IsNullOrEmpty(Footer)) return Array.Empty<byte>();
+        var built = new StringBuilder();
+
+        void At(string? raw, double y)
+        {
+            if (string.IsNullOrEmpty(raw)) return;
+            var text = raw.Replace("{page}", page.ToString(CultureInfo.InvariantCulture))
+                          .Replace("{pages}", total.ToString(CultureInfo.InvariantCulture));
+            if (text.Length == 0) return;
+            const double size = 8.5;
+            double x = (_width - Measure(text, size, false)) / 2;
+            built.Append("BT\n").Append($"/FR {P(size)} Tf\n").Append($"{P(Math.Max(0, x))} {P(y)} Td\n")
+                 .Append($"({Escape(text)}) Tj\n").Append("ET\n");
+        }
+
+        // Inside the paper but outside the text, which is what a margin is for.
+        At(Header, _height - _margin + 16);
+        At(Footer, Math.Max(8, _margin - 24));
+        return Encoding.ASCII.GetBytes(built.ToString());
+    }
+
+    /// <summary>
+    /// The characters a PDF reader's built-in fonts hold that are not where Unicode puts them. Bullets, curly
+    /// quotes, dashes and the like live in the 0x80 to 0x9F range in WinAnsi, and writing them by their Unicode
+    /// number produces an octal escape a reader misreads: a bullet came out as "€42".
+    /// </summary>
+    private static readonly Dictionary<char, byte> WinAnsi = new()
+    {
+        ['\u20AC'] = 0x80, ['\u201A'] = 0x82, ['\u0192'] = 0x83, ['\u201E'] = 0x84, ['\u2026'] = 0x85,
+        ['\u2020'] = 0x86, ['\u2021'] = 0x87, ['\u02C6'] = 0x88, ['\u2030'] = 0x89, ['\u0160'] = 0x8A,
+        ['\u2039'] = 0x8B, ['\u0152'] = 0x8C, ['\u017D'] = 0x8E, ['\u2018'] = 0x91, ['\u2019'] = 0x92,
+        ['\u201C'] = 0x93, ['\u201D'] = 0x94, ['\u2022'] = 0x95, ['\u2013'] = 0x96, ['\u2014'] = 0x97,
+        ['\u02DC'] = 0x98, ['\u2122'] = 0x99, ['\u0161'] = 0x9A, ['\u203A'] = 0x9B, ['\u0153'] = 0x9C,
+        ['\u017E'] = 0x9E, ['\u0178'] = 0x9F,
+    };
+
+    private static bool Writable(char c) =>
+        c is '\t' or '\n' or '\r' || (c >= 32 && c <= 126) || (c >= 160 && c <= 255) || WinAnsi.ContainsKey(c);
+
     /// <summary>Is every character one of the fonts can write? Anything else and Plain says so rather than mangling it.</summary>
-    public static bool CanWrite(string text) => text.All(c => c is '\t' or '\n' or '\r' || (c >= 32 && c <= 126) || (c >= 160 && c <= 255));
+    public static bool CanWrite(string text) => text.All(Writable);
 
     /// <summary>The characters this cannot write, so the caller can name them.</summary>
-    public static string Unwritable(string text) =>
-        new(text.Where(c => !(c is '\t' or '\n' or '\r' || (c >= 32 && c <= 126) || (c >= 160 && c <= 255))).Distinct().ToArray());
+    public static string Unwritable(string text) => new(text.Where(c => !Writable(c)).Distinct().ToArray());
 
     // ---------- laying text out ----------
 
@@ -117,8 +165,13 @@ public sealed class Pdf
         {
             if (c is '(' or ')' or '\\') built.Append('\\').Append(c);
             else if (c < 32) built.Append(' ');
-            else if (c > 126) built.Append('\\').Append(Convert.ToString(c, 8).PadLeft(3, '0'));
-            else built.Append(c);
+            else if (c <= 126) built.Append(c);
+            else if (WinAnsi.TryGetValue(c, out var mapped))
+                built.Append('\\').Append(Convert.ToString(mapped, 8).PadLeft(3, '0'));
+            else if (c <= 255) built.Append('\\').Append(Convert.ToString(c, 8).PadLeft(3, '0'));
+            // Anything else has no place in these fonts. A question mark is honest; an octal escape of a number
+            // above 255 is not, because a reader takes the first three digits and prints the rest as text.
+            else built.Append('?');
         }
         return built.ToString();
     }
@@ -203,9 +256,11 @@ public sealed class Pdf
                 $"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {P(_width)} {P(_height)}] " +
                 $"/Resources << /Font << /FR 3 0 R /FB 4 0 R >> >> /Contents {pageNumber + 1} 0 R >>");
 
+            var furniture = Furniture(i + 1, _pages.Count);
             offsets.Add(file.Position);
-            Put($"{pageNumber + 1} 0 obj\n<< /Length {_pages[i].Length} >>\nstream\n");
+            Put($"{pageNumber + 1} 0 obj\n<< /Length {_pages[i].Length + furniture.Length} >>\nstream\n");
             file.Write(_pages[i]);
+            file.Write(furniture);
             Put("\nendstream\nendobj\n");
         }
 

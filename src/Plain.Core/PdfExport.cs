@@ -11,9 +11,11 @@ public static class PdfExport
 {
     public sealed record Result(byte[] Bytes, int Pages, string? Warning);
 
-    public static Result Build(PlainFile file, string title)
+    public static Result Build(PlainFile file, string title) => Build(file, title, PageSetup.Default);
+
+    public static Result Build(PlainFile file, string title, PageSetup page)
     {
-        var pdf = new Pdf();
+        var pdf = page.NewPdf();
         string? warning = null;
 
         void Text(string text, double size, bool bold, double indent = 0, double after = 4)
