@@ -25,6 +25,11 @@ public sealed class Workbook
     private XDocument? _workbookDoc;
     private bool _workbookDirty;
     private Styles? _styles;
+    private Dialect _dialect = Dialect.Transitional;
+
+    /// <summary>The family of names this workbook was written in, so every part is read the way it was written.</summary>
+    public Dialect Dialect => _dialect;
+    private Dialect D => _dialect;
 
     public OpcPackage Package => _pkg;
     public IReadOnlyList<Sheet> Sheets => _sheets;
@@ -39,18 +44,25 @@ public sealed class Workbook
         if (!pkg.Has(WorkbookPart)) throw new OpcPackage.PackageException("This is not an Excel workbook.");
 
         _workbookDoc = Xml.Parse(pkg.Read(WorkbookPart));
+        _dialect = Dialect.Of(_workbookDoc.Root!);
         var rels = new Rels(pkg, WorkbookPart);
-        foreach (var s in _workbookDoc.Root!.Element(Ns.Sheet + "sheets")?.Elements(Ns.Sheet + "sheet") ?? Enumerable.Empty<XElement>())
+        foreach (var s in _workbookDoc.Root!.Element(D.Sheet + "sheets")?.Elements(D.Sheet + "sheet") ?? Enumerable.Empty<XElement>())
         {
             string name = (string?)s.Attribute("name") ?? "Sheet";
-            string? rid = (string?)s.Attribute(Ns.Rel + "id");
+            string? rid = (string?)s.Attribute(D.Rel + "id");
             string? target = rid is null ? null : rels[rid];
             bool hidden = ((string?)s.Attribute("state") ?? "visible") != "visible";
             if (target is not null && pkg.Has(target)) _sheets.Add(new Sheet(this, name, target, hidden));
         }
+
+        // A workbook always has at least one sheet. Finding none means Plain did not understand the file, and
+        // showing an empty grid would be a lie about what is in it.
+        if (_sheets.Count == 0)
+            throw new OpcPackage.PackageException(
+                "Plain could not find the sheets in this workbook. It opens, but not in a way Plain reads, so nothing is shown rather than showing you an empty grid.");
     }
 
-    internal Styles Styles => _styles ??= new Styles(_pkg);
+    internal Styles Styles => _styles ??= new Styles(_pkg, _dialect);
 
     // ---------- shared strings ----------
 
@@ -66,15 +78,15 @@ public sealed class Workbook
         _strings = new List<string>();
         if (!_pkg.Has("xl/sharedStrings.xml")) return;
         _sst = Xml.Parse(_pkg.Read("xl/sharedStrings.xml"));
-        foreach (var si in _sst.Root!.Elements(Ns.Sheet + "si")) _strings.Add(SiText(si));
+        foreach (var si in _sst.Root!.Elements(D.Sheet + "si")) _strings.Add(SiText(si));
     }
 
-    private static string SiText(XElement si)
+    private string SiText(XElement si)
     {
         // A shared string is either one <t> or a run of <r><t> pieces with their own formatting.
-        var t = si.Element(Ns.Sheet + "t");
+        var t = si.Element(D.Sheet + "t");
         if (t is not null) return t.Value;
-        return string.Concat(si.Elements(Ns.Sheet + "r").Select(r => r.Element(Ns.Sheet + "t")?.Value ?? ""));
+        return string.Concat(si.Elements(D.Sheet + "r").Select(r => r.Element(D.Sheet + "t")?.Value ?? ""));
     }
 
     /// <summary>The index for a piece of text, appending it to the shared table when it is new.</summary>
@@ -85,10 +97,10 @@ public sealed class Workbook
         if (existing >= 0) return existing;
         if (_sst is null) throw new OpcPackage.PackageException("This workbook has no shared string table, so Plain cannot add text to it yet.");
 
-        var si = new XElement(Ns.Sheet + "si", new XElement(Ns.Sheet + "t", text));
+        var si = new XElement(D.Sheet + "si", new XElement(D.Sheet + "t", text));
         // Text with leading or trailing spaces needs the xml:space hint or Excel trims it.
         if (text.Length > 0 && (char.IsWhiteSpace(text[0]) || char.IsWhiteSpace(text[^1])))
-            si.Element(Ns.Sheet + "t")!.SetAttributeValue(XNamespace.Xml + "space", "preserve");
+            si.Element(D.Sheet + "t")!.SetAttributeValue(XNamespace.Xml + "space", "preserve");
         _sst.Root!.Add(si);
         _strings.Add(text);
         _sst.Root.SetAttributeValue("uniqueCount", _strings.Count.ToString(CultureInfo.InvariantCulture));
@@ -105,11 +117,11 @@ public sealed class Workbook
     internal void RequestFullRecalculation()
     {
         var root = _workbookDoc!.Root!;
-        var calcPr = root.Element(Ns.Sheet + "calcPr");
+        var calcPr = root.Element(D.Sheet + "calcPr");
         if (calcPr is null)
         {
-            calcPr = new XElement(Ns.Sheet + "calcPr", new XAttribute("calcId", "0"));
-            var sheets = root.Element(Ns.Sheet + "sheets");
+            calcPr = new XElement(D.Sheet + "calcPr", new XAttribute("calcId", "0"));
+            var sheets = root.Element(D.Sheet + "sheets");
             if (sheets is not null) sheets.AddAfterSelf(calcPr); else root.Add(calcPr);
         }
         calcPr.SetAttributeValue("fullCalcOnLoad", "1");
@@ -230,6 +242,8 @@ public sealed class Sheet
     public string PartName { get; }
     public bool Hidden { get; }
 
+    private Dialect D => _book.Dialect;
+
     internal Sheet(Workbook book, string name, string partName, bool hidden)
     {
         _book = book; Name = name; PartName = partName; Hidden = hidden;
@@ -244,7 +258,7 @@ public sealed class Sheet
             _rowIndex = null;
             _extent = null;
             _doc = Xml.Parse(_book.Package.Read(PartName));
-            _data = _doc.Root!.Element(Ns.Sheet + "sheetData")
+            _data = _doc.Root!.Element(D.Sheet + "sheetData")
                     ?? throw new OpcPackage.PackageException($"The sheet \"{Name}\" has no cell data.");
             return _data;
         }
@@ -259,8 +273,8 @@ public sealed class Sheet
         {
             if (_extent is { } known) return known;
             int maxCol = 1, maxRow = 1;
-            foreach (var row in Data.Elements(Ns.Sheet + "row"))
-                foreach (var c in row.Elements(Ns.Sheet + "c"))
+            foreach (var row in Data.Elements(D.Sheet + "row"))
+                foreach (var c in row.Elements(D.Sheet + "c"))
                     if (CellRef.TryParse((string?)c.Attribute("r") ?? "", out var r) && !string.IsNullOrEmpty(c.Value))
                     {
                         if (r.Column > maxCol) maxCol = r.Column;
@@ -289,11 +303,11 @@ public sealed class Sheet
     {
         var list = new List<(int, int, double)>();
         var sheetElement = _doc?.Root ?? Xml.Parse(_book.Package.Read(PartName)).Root;
-        var format = sheetElement?.Element(Ns.Sheet + "sheetFormatPr");
+        var format = sheetElement?.Element(D.Sheet + "sheetFormatPr");
         if (format is not null && double.TryParse((string?)format.Attribute("defaultColWidth"),
                 System.Globalization.NumberStyles.Float, CultureInfo.InvariantCulture, out var d) && d > 0)
             _defaultWidth = d;
-        foreach (var c in sheetElement?.Element(Ns.Sheet + "cols")?.Elements(Ns.Sheet + "col") ?? Enumerable.Empty<XElement>())
+        foreach (var c in sheetElement?.Element(D.Sheet + "cols")?.Elements(D.Sheet + "col") ?? Enumerable.Empty<XElement>())
         {
             if (!int.TryParse((string?)c.Attribute("min"), out var min)) continue;
             if (!int.TryParse((string?)c.Attribute("max"), out var max)) continue;
@@ -316,7 +330,7 @@ public sealed class Sheet
             // Load the sheet before building, because loading it clears this very field.
             var data = Data;
             var index = new Dictionary<int, XElement>();
-            foreach (var row in data.Elements(Ns.Sheet + "row"))
+            foreach (var row in data.Elements(D.Sheet + "row"))
                 if (Xml.Int(row.Attribute("r")) is { } number) index[number] = row;
             _rowIndex = index;
             return index;
@@ -328,7 +342,7 @@ public sealed class Sheet
     private XElement? FindCell(CellRef cell)
     {
         string want = cell.ToString();
-        return FindRow(cell.Row)?.Elements(Ns.Sheet + "c").FirstOrDefault(c => (string?)c.Attribute("r") == want);
+        return FindRow(cell.Row)?.Elements(D.Sheet + "c").FirstOrDefault(c => (string?)c.Attribute("r") == want);
     }
 
     public Cell Read(string reference) => Read(CellRef.Parse(reference));
@@ -342,8 +356,8 @@ public sealed class Sheet
     private Cell ReadFrom(XElement c, CellRef reference)
     {
         string? type = (string?)c.Attribute("t");
-        string? formula = c.Element(Ns.Sheet + "f")?.Value;
-        var v = c.Element(Ns.Sheet + "v");
+        string? formula = c.Element(D.Sheet + "f")?.Value;
+        var v = c.Element(D.Sheet + "v");
 
         string raw, display;
         CellKind kind;
@@ -354,7 +368,7 @@ public sealed class Sheet
                 kind = CellKind.Text;
                 break;
             case "inlineStr":
-                raw = display = c.Element(Ns.Sheet + "is")?.Value ?? "";
+                raw = display = c.Element(D.Sheet + "is")?.Value ?? "";
                 kind = CellKind.Text;
                 break;
             case "str":
@@ -390,8 +404,8 @@ public sealed class Sheet
     /// <summary>Every non-empty cell, in reading order. Each one is read from the element in hand, never looked up again.</summary>
     public IEnumerable<Cell> Cells()
     {
-        foreach (var row in Data.Elements(Ns.Sheet + "row"))
-            foreach (var c in row.Elements(Ns.Sheet + "c"))
+        foreach (var row in Data.Elements(D.Sheet + "row"))
+            foreach (var c in row.Elements(D.Sheet + "c"))
                 if (CellRef.TryParse((string?)c.Attribute("r") ?? "", out var r))
                 {
                     var cell = ReadFrom(c, r);
@@ -408,14 +422,14 @@ public sealed class Sheet
     public void Set(CellRef reference, string typed)
     {
         var c = EnsureCell(reference);
-        c.Elements(Ns.Sheet + "f").Remove();
-        c.Elements(Ns.Sheet + "v").Remove();
-        c.Elements(Ns.Sheet + "is").Remove();
+        c.Elements(D.Sheet + "f").Remove();
+        c.Elements(D.Sheet + "v").Remove();
+        c.Elements(D.Sheet + "is").Remove();
         c.Attribute("t")?.Remove();
 
         if (typed.StartsWith('=') && typed.Length > 1)
         {
-            c.Add(new XElement(Ns.Sheet + "f", typed[1..]));
+            c.Add(new XElement(D.Sheet + "f", typed[1..]));
             _book.RequestFullRecalculation();
         }
         else if (typed.Length == 0)
@@ -425,13 +439,13 @@ public sealed class Sheet
         else if (double.TryParse(typed, NumberStyles.Float, CultureInfo.InvariantCulture, out var number)
                  && !typed.Contains(' ') && double.IsFinite(number))
         {
-            c.Add(new XElement(Ns.Sheet + "v", number.ToString("R", CultureInfo.InvariantCulture)));
+            c.Add(new XElement(D.Sheet + "v", number.ToString("R", CultureInfo.InvariantCulture)));
             _book.RequestFullRecalculation();
         }
         else
         {
             c.SetAttributeValue("t", "s");
-            c.Add(new XElement(Ns.Sheet + "v", _book.InternString(typed).ToString(CultureInfo.InvariantCulture)));
+            c.Add(new XElement(D.Sheet + "v", _book.InternString(typed).ToString(CultureInfo.InvariantCulture)));
             _book.RequestFullRecalculation();
         }
         _dirty = true;
@@ -446,19 +460,19 @@ public sealed class Sheet
         var row = FindRow(reference.Row);
         if (row is null)
         {
-            row = new XElement(Ns.Sheet + "row", new XAttribute("r", reference.Row));
-            var after = Data.Elements(Ns.Sheet + "row").LastOrDefault(r => Xml.Int(r.Attribute("r"), 0) < reference.Row);
+            row = new XElement(D.Sheet + "row", new XAttribute("r", reference.Row));
+            var after = Data.Elements(D.Sheet + "row").LastOrDefault(r => Xml.Int(r.Attribute("r"), 0) < reference.Row);
             if (after is not null) after.AddAfterSelf(row); else Data.AddFirst(row);
             RowIndex[reference.Row] = row;
         }
 
         string want = reference.ToString();
-        var cell = row.Elements(Ns.Sheet + "c").FirstOrDefault(c => (string?)c.Attribute("r") == want);
+        var cell = row.Elements(D.Sheet + "c").FirstOrDefault(c => (string?)c.Attribute("r") == want);
         if (cell is not null) return cell;
 
-        cell = new XElement(Ns.Sheet + "c", new XAttribute("r", want));
+        cell = new XElement(D.Sheet + "c", new XAttribute("r", want));
         // Cells must stay in ascending column order or Excel reports the file as damaged.
-        var prev = row.Elements(Ns.Sheet + "c")
+        var prev = row.Elements(D.Sheet + "c")
             .LastOrDefault(c => CellRef.TryParse((string?)c.Attribute("r") ?? "", out var r) && r.Column < reference.Column);
         if (prev is not null) prev.AddAfterSelf(cell); else row.AddFirst(cell);
         return cell;
@@ -468,10 +482,10 @@ public sealed class Sheet
     internal IReadOnlyList<(CellRef Ref, string Formula)> Formulas()
     {
         var list = new List<(CellRef, string)>();
-        foreach (var row in Data.Elements(Ns.Sheet + "row"))
-            foreach (var c in row.Elements(Ns.Sheet + "c"))
+        foreach (var row in Data.Elements(D.Sheet + "row"))
+            foreach (var c in row.Elements(D.Sheet + "c"))
             {
-                var f = c.Element(Ns.Sheet + "f");
+                var f = c.Element(D.Sheet + "f");
                 if (f is null) continue;
                 if (CellRef.TryParse((string?)c.Attribute("r") ?? "", out var reference)) list.Add((reference, f.Value));
             }
@@ -487,13 +501,13 @@ public sealed class Sheet
     {
         if (cells.Count == 0) return false;
         bool any = false;
-        foreach (var row in Data.Elements(Ns.Sheet + "row"))
-            foreach (var c in row.Elements(Ns.Sheet + "c"))
+        foreach (var row in Data.Elements(D.Sheet + "row"))
+            foreach (var c in row.Elements(D.Sheet + "c"))
             {
-                if (c.Element(Ns.Sheet + "f") is null) continue;
+                if (c.Element(D.Sheet + "f") is null) continue;
                 if (!CellRef.TryParse((string?)c.Attribute("r") ?? "", out var reference) || !cells.Contains(reference)) continue;
-                if (c.Element(Ns.Sheet + "v") is null) continue;
-                c.Elements(Ns.Sheet + "v").Remove();
+                if (c.Element(D.Sheet + "v") is null) continue;
+                c.Elements(D.Sheet + "v").Remove();
                 // A cached string result is typed on the cell; without the value the type means nothing.
                 if ((string?)c.Attribute("t") == "str") c.Attribute("t")!.Remove();
                 any = true;

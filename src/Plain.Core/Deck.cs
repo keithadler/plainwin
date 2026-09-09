@@ -13,6 +13,11 @@ public sealed class Deck
 {
     private readonly OpcPackage _pkg;
     private readonly List<Slide> _slides = new();
+    private Dialect _dialect = Dialect.Transitional;
+
+    /// <summary>The family of names this deck was written in.</summary>
+    public Dialect Dialect => _dialect;
+    private Dialect D => _dialect;
 
     public OpcPackage Package => _pkg;
     public IReadOnlyList<Slide> Slides => _slides;
@@ -24,11 +29,12 @@ public sealed class Deck
         _pkg = pkg;
         if (!pkg.Has("ppt/presentation.xml")) throw new OpcPackage.PackageException("This is not a PowerPoint deck.");
         var pres = Xml.Parse(pkg.Read("ppt/presentation.xml"));
+        _dialect = Dialect.Of(pres.Root!);
         var rels = new Rels(pkg, "ppt/presentation.xml");
         int number = 1;
-        foreach (var id in pres.Root!.Element(Ns.Pres + "sldIdLst")?.Elements(Ns.Pres + "sldId") ?? Enumerable.Empty<XElement>())
+        foreach (var id in pres.Root!.Element(D.Pres + "sldIdLst")?.Elements(D.Pres + "sldId") ?? Enumerable.Empty<XElement>())
         {
-            string? rid = (string?)id.Attribute(Ns.Rel + "id");
+            string? rid = (string?)id.Attribute(D.Rel + "id");
             string? target = rid is null ? null : rels[rid];
             if (target is not null && pkg.Has(target)) _slides.Add(new Slide(this, number++, target));
         }
@@ -48,6 +54,8 @@ public sealed class Slide
     public int Number { get; }
     public string PartName { get; }
 
+    private Dialect D => _deck.Dialect;
+
     internal Slide(Deck deck, int number, string partName) { _deck = deck; Number = number; PartName = partName; }
 
     private List<XElement> Shapes
@@ -56,7 +64,7 @@ public sealed class Slide
         {
             if (_shapes is not null) return _shapes;
             _doc = Xml.Parse(_deck.Package.Read(PartName));
-            _shapes = _doc.Root!.Descendants(Ns.Pres + "sp").Where(sp => Body(sp) is not null).ToList();
+            _shapes = _doc.Root!.Descendants(D.Pres + "sp").Where(sp => Body(sp) is not null).ToList();
             return _shapes;
         }
     }
@@ -72,10 +80,10 @@ public sealed class Slide
         {
             var sp = Shapes[i];
             // A shape with no placeholder element is plain text on the slide, not a body placeholder.
-            var ph = sp.Descendants(Ns.Pres + "ph").FirstOrDefault();
+            var ph = sp.Descendants(D.Pres + "ph").FirstOrDefault();
             string placeholder = ph is null ? "" : (string?)ph.Attribute("type") ?? "body";
             var body = Body(sp)!;
-            var shape = new TextShape(body, Ns.Draw);
+            var shape = new TextShape(body, D.Draw);
             yield return new SlideText(i, placeholder, shape.Paragraphs.Select(shape.TextOf).ToList());
         }
     }
@@ -90,7 +98,7 @@ public sealed class Slide
     public bool SetLine(int shapeIndex, int lineIndex, string value)
     {
         var body = Body(Shapes[shapeIndex])!;
-        var shape = new TextShape(body, Ns.Draw);
+        var shape = new TextShape(body, D.Draw);
         var paragraphs = shape.Paragraphs.ToList();
         if (lineIndex < 0 || lineIndex >= paragraphs.Count)
             throw new ArgumentOutOfRangeException(nameof(lineIndex), "That line is not on this slide.");

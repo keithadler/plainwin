@@ -68,6 +68,7 @@
 <p>In a spreadsheet, Find looks at the formula behind a cell as well as at what it shows, so searching for <code>SUM</code> finds the cells that total something.</p>
 
 <h2 id="safe">When something goes wrong</h2>
+<p>Office can save the same document two ways, and the second way, which Excel calls "Strict Open XML", spells everything differently inside. Plain reads both and saves back whichever it found. A file it cannot make sense of is refused with an explanation rather than opened to an empty window.</p>
 <p>A file that arrived damaged gets a sentence explaining what is wrong with it, never a crash. Plain's readers are tested against thousands of broken copies of real files: truncated downloads, zeroed blocks, flipped bits.</p>
 <p>Saving writes the new contents beside your file first and only then puts them in its place, so a save that is interrupted leaves the original whole. Where the file already exists Plain replaces its contents rather than swapping in a new file with the same name, so the permissions on it, the date it was created and its place in the folder all survive.</p>
 <p>If another program changed the file while you had it open, Plain notices and asks before writing over that. If Windows has the file marked read only, it says so and points you at <b>Save a copy</b>.</p>

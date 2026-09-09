@@ -28,6 +28,7 @@ public sealed class Document
     private readonly XDocument _doc;
     private readonly TextShape _shape;
     private readonly List<XElement> _paragraphs;
+    private readonly Dialect D;
     private bool _dirty;
 
     public OpcPackage Package => _pkg;
@@ -40,23 +41,29 @@ public sealed class Document
         _pkg = pkg;
         if (!pkg.Has(BodyPart)) throw new OpcPackage.PackageException("This is not a Word document.");
         _doc = Xml.Parse(pkg.Read(BodyPart));
-        _shape = new TextShape(_doc.Root!, Ns.Word);
-        var body = _doc.Root!.Element(Ns.Word + "body") ?? _doc.Root!;
-        _paragraphs = body.Descendants(Ns.Word + "p").ToList();
+        D = Dialect.Of(_doc.Root!);
+        _shape = new TextShape(_doc.Root!, D.Word);
+        var body = _doc.Root!.Element(D.Word + "body") ?? _doc.Root!;
+        _paragraphs = body.Descendants(D.Word + "p").ToList();
+
+        // A document with no paragraphs at all means the body was not understood; say so rather than show a blank page.
+        if (_paragraphs.Count == 0 && body.Elements().Any())
+            throw new OpcPackage.PackageException(
+                "Plain could not find the text in this document. It opens, but not in a way Plain reads.");
 
         // Work out each paragraph's place in a table once, rather than walking ancestors for every read.
-        var tables = body.Descendants(Ns.Word + "tbl").ToList();
+        var tables = body.Descendants(D.Word + "tbl").ToList();
         var tableIndex = new Dictionary<XElement, int>();
         for (int i = 0; i < tables.Count; i++) tableIndex[tables[i]] = i;
 
         foreach (var p in _paragraphs)
         {
-            var cell = p.Ancestors(Ns.Word + "tc").FirstOrDefault();
+            var cell = p.Ancestors(D.Word + "tc").FirstOrDefault();
             var row = cell?.Parent;
             var table = row?.Parent;
             if (cell is null || row is null || table is null || !tableIndex.TryGetValue(table, out var t)) continue;
-            int r = table.Elements(Ns.Word + "tr").ToList().IndexOf(row);
-            int c = row.Elements(Ns.Word + "tc").ToList().IndexOf(cell);
+            int r = table.Elements(D.Word + "tr").ToList().IndexOf(row);
+            int c = row.Elements(D.Word + "tc").ToList().IndexOf(cell);
             _place[p] = (t, r, c);
         }
     }
@@ -71,9 +78,9 @@ public sealed class Document
     public Block Read(int index)
     {
         var p = _paragraphs[index];
-        string style = (string?)p.Element(Ns.Word + "pPr")?.Element(Ns.Word + "pStyle")?.Attribute(Ns.Word + "val") ?? "";
-        bool inTable = p.Ancestors(Ns.Word + "tbl").Any();
-        bool numbered = p.Element(Ns.Word + "pPr")?.Element(Ns.Word + "numPr") is not null;
+        string style = (string?)p.Element(D.Word + "pPr")?.Element(D.Word + "pStyle")?.Attribute(D.Word + "val") ?? "";
+        bool inTable = p.Ancestors(D.Word + "tbl").Any();
+        bool numbered = p.Element(D.Word + "pPr")?.Element(D.Word + "numPr") is not null;
 
         var kind = inTable ? BlockKind.TableCell
             : numbered ? BlockKind.ListItem

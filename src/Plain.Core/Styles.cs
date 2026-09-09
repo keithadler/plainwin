@@ -13,19 +13,22 @@ public sealed class Styles
     private readonly Dictionary<int, string> _formats = new();   // style index -> format code
     private static readonly DateTime Epoch = new(1899, 12, 30);
 
-    public Styles(OpcPackage pkg)
+    private readonly Dialect D;
+
+    public Styles(OpcPackage pkg, Dialect dialect)
     {
+        D = dialect;
         if (!pkg.Has("xl/styles.xml")) return;
         XDocument doc;
         try { doc = Xml.Parse(pkg.Read("xl/styles.xml")); } catch { return; }
 
         var custom = new Dictionary<int, string>();
-        foreach (var f in doc.Root!.Element(Ns.Sheet + "numFmts")?.Elements(Ns.Sheet + "numFmt") ?? Enumerable.Empty<XElement>())
+        foreach (var f in doc.Root!.Element(D.Sheet + "numFmts")?.Elements(D.Sheet + "numFmt") ?? Enumerable.Empty<XElement>())
             if (int.TryParse((string?)f.Attribute("numFmtId"), out var id))
                 custom[id] = (string?)f.Attribute("formatCode") ?? "";
 
         int styleIndex = 0;
-        foreach (var xf in doc.Root.Element(Ns.Sheet + "cellXfs")?.Elements(Ns.Sheet + "xf") ?? Enumerable.Empty<XElement>())
+        foreach (var xf in doc.Root.Element(D.Sheet + "cellXfs")?.Elements(D.Sheet + "xf") ?? Enumerable.Empty<XElement>())
         {
             int id = Xml.Int(xf.Attribute("numFmtId"), 0);
             string code = custom.TryGetValue(id, out var c) ? c : BuiltIn(id);

@@ -8,6 +8,46 @@ namespace Plain.Core;
 /// The Open XML namespaces Plain needs, and the one way it writes XML back. Office files declare a standalone
 /// document with no indentation; writing them back any other way is legal but noisy in a diff, so Plain matches.
 /// </summary>
+/// <summary>
+/// Which family of names a file was written in. Office can save the same document two ways: the transitional shape
+/// nearly everything uses, and the strict ISO shape that Excel offers as "Strict Open XML". The elements are the
+/// same, the namespace they live in is not, so a reader that knows only one finds an empty file and says nothing.
+/// Plain works out which family a part is in and reads it either way; it writes back the family it found.
+/// </summary>
+public sealed class Dialect
+{
+    public required XNamespace Sheet { get; init; }
+    public required XNamespace Word { get; init; }
+    public required XNamespace Pres { get; init; }
+    public required XNamespace Draw { get; init; }
+    public required XNamespace Rel { get; init; }
+    public required bool Strict { get; init; }
+
+    public static readonly Dialect Transitional = new()
+    {
+        Sheet = "http://schemas.openxmlformats.org/spreadsheetml/2006/main",
+        Word = "http://schemas.openxmlformats.org/wordprocessingml/2006/main",
+        Pres = "http://schemas.openxmlformats.org/presentationml/2006/main",
+        Draw = "http://schemas.openxmlformats.org/drawingml/2006/main",
+        Rel = "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
+        Strict = false,
+    };
+
+    public static readonly Dialect Iso = new()
+    {
+        Sheet = "http://purl.oclc.org/ooxml/spreadsheetml/main",
+        Word = "http://purl.oclc.org/ooxml/wordprocessingml/main",
+        Pres = "http://purl.oclc.org/ooxml/presentationml/main",
+        Draw = "http://purl.oclc.org/ooxml/drawingml/main",
+        Rel = "http://purl.oclc.org/ooxml/officeDocument/relationships",
+        Strict = true,
+    };
+
+    /// <summary>The family a part is written in, taken from the namespace its root element sits in.</summary>
+    public static Dialect Of(XElement root) =>
+        root.Name.NamespaceName.Contains("purl.oclc.org/ooxml", StringComparison.Ordinal) ? Iso : Transitional;
+}
+
 public static class Ns
 {
     public static readonly XNamespace Sheet = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";

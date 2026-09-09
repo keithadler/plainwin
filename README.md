@@ -50,6 +50,7 @@ The panel on the right tells you what they are, in as few lines as it honestly c
 
 ## When things go wrong
 
+- **Both ways of writing a file are read.** Office can save the same document two ways: the transitional shape nearly everything uses, and the strict ISO shape that Excel offers as "Strict Open XML Spreadsheet". They spell every element in a different namespace. Plain reads either and writes back the one it found. A file it cannot make sense of is refused with a sentence rather than opened to an empty window.
 - **A damaged file gets a sentence, not a crash.** The readers are fuzzed against truncated, zeroed, overwritten and bit-flipped copies of every fixture; whatever comes back is either a working file or a clear refusal. No part is allowed to unpack to more than half a gigabyte, so a hostile file cannot exhaust the machine.
 - **A save cannot leave you with half a file.** The new contents go to a temporary file beside yours and only then take its place.
 - **A save keeps your file being your file.** Where the file already exists Plain replaces its contents rather than swapping in a new file with the old name, so who may read it, when it was created and where it sits all survive. A new file wearing the old name would quietly take whatever permissions the folder hands out.

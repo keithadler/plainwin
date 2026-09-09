@@ -61,8 +61,9 @@ public sealed class TextShape
     private void SetRunText(XElement t, string value)
     {
         t.Value = value;
-        // Word drops leading and trailing spaces unless the run says to keep them.
-        if (_ns == Ns.Word && value.Length > 0 && (char.IsWhiteSpace(value[0]) || char.IsWhiteSpace(value[^1])))
+        // Word drops leading and trailing spaces unless the run says to keep them. Either family of names counts.
+        bool word = _ns.NamespaceName.Contains("wordprocessingml", StringComparison.Ordinal);
+        if (word && value.Length > 0 && (char.IsWhiteSpace(value[0]) || char.IsWhiteSpace(value[^1])))
             t.SetAttributeValue(XNamespace.Xml + "space", "preserve");
     }
 }
