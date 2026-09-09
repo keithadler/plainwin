@@ -138,17 +138,29 @@ def spreadsheet():
             ("PS-1045", "Kestrel Freight", "27 May", 4750),
             ("PS-1046", "Harbour Lane Clinic", "09 Jun", 6300),
             ("PS-1047", "Kestrel Freight", "21 Jun", 9050)]
-    detail = [row([cell("Invoice", "hdr"), cell("Client", "hdr"), cell("Raised", "hdr"), cell("Amount", "hdr")])]
-    for inv, client, raised, amt in data:
-        detail.append(row([cell(inv), cell(client), cell(raised), cell(amt, "num")]))
+    detail = [row([cell("Invoice", "hdr"), cell("Client", "hdr"), cell("Raised", "hdr"), cell("Amount", "hdr"),
+                   cell("Status", "hdr")])]
+    for i, (inv, client, raised, amt) in enumerate(data):
+        state = ["Paid", "Sent", "Overdue"][i % 3]
+        detail.append(row([cell(inv), cell(client), cell(raised), cell(amt, "num"),
+                           '<table:table-cell table:content-validation-name="status" office:value-type="string">'
+                           '<text:p>%s</text:p></table:table-cell>' % state]))
     detail.append(row([cell("Total", "totl"), cell(), cell(),
-                       cell(sum(d[3] for d in data), "tot", "=SUM([.D2:.D%d])" % (1 + len(data)))]))
+                       cell(sum(d[3] for d in data), "tot", "=SUM([.D2:.D%d])" % (1 + len(data))), cell()]))
+
+    statuses = ('<table:content-validation table:name="status" '
+                'table:condition="of:cell-content-is-in-list(&quot;Sent&quot;;&quot;Paid&quot;;&quot;Overdue&quot;)" '
+                'table:allow-empty-cell="true"><office:event-listeners/>'
+                '<table:help-message table:title="Status" table:display="true">'
+                '<text:p>One of Sent, Paid or Overdue.</text:p></table:help-message>'
+                '</table:content-validation>')
 
     notes = [row([cell("Written up by Sam Rivera on 3 July.")]),
              row([cell("Hardware is down because the Woodland Ave order slipped into Q3.")]),
              row([cell("Hosting moves to the annual plan in Q4.")])]
 
-    body = sheet("Summary", rows) + sheet("Detail", detail, cols=4) + sheet("Notes", notes, cols=2)
+    body = ('<table:content-validations>' + statuses + '</table:content-validations>'
+            + sheet("Summary", rows) + sheet("Detail", detail, cols=4) + sheet("Notes", notes, cols=2))
     return ('<?xml version="1.0" encoding="UTF-8"?>\n<office:document %s '
             'office:mimetype="application/vnd.oasis.opendocument.spreadsheet">\n%s\n'
             '<office:body><office:spreadsheet>\n%s</office:spreadsheet></office:body></office:document>\n'
@@ -215,19 +227,25 @@ def document():
 # ---------------- presentation ----------------
 
 def presentation():
-    slides = [("Woodland Ave", ["Annual review", "Pine Street Holdings", "3 July"]),
+    slides = [("Woodland Ave", ["Annual review", "Pine Street Holdings", "3 July"],
+               "Thank them for coming. Keep this to twenty minutes."),
               ("The year in one line", ["Full for eleven months of twelve",
                                         "Repairs under the amount set aside",
-                                        "One vacancy, let in three weeks"]),
-              ("Rent collected", ["182,400 this year", "171,900 last year", "Up 6 per cent"]),
-              ("What it cost", ["Repairs 14,200", "Insurance 9,800", "Management 12,600"]),
+                                        "One vacancy, let in three weeks"],
+               "The vacancy was in March. Do not volunteer that unless asked."),
+              ("Rent collected", ["182,400 this year", "171,900 last year", "Up 6 per cent"],
+               "Six per cent is the headline. The board will ask how much of it is the one new tenant."),
+              ("What it cost", ["Repairs 14,200", "Insurance 9,800", "Management 12,600"],
+               "Insurance is up eight per cent and will go up again at renewal."),
               ("The roof", ["Survey booked for September", "Work deferred, not avoided",
-                            "The money stays set aside"]),
+                            "The money stays set aside"],
+               "This is the one they will push on. The survey is booked, the money is there."),
               ("What we are asking", ["Hold the rent until the roof is done",
                                       "Move everyone to one renewal date",
-                                      "The board sees this before anything is agreed"])]
+                                      "The board sees this before anything is agreed"],
+               "Ask for a decision on the renewal dates today. The rest can wait.")]
     body = ""
-    for i, (title, bullets) in enumerate(slides):
+    for i, (title, bullets, notes) in enumerate(slides):
         body += '<draw:page draw:name="Slide %d" draw:master-page-name="Default">\n' % (i + 1)
         body += ('<draw:frame presentation:class="title" svg:width="9in" svg:height="1.2in" svg:x="0.5in" '
                  'svg:y="0.5in"><draw:text-box><text:p>%s</text:p></draw:text-box></draw:frame>\n' % esc(title))
@@ -235,7 +253,12 @@ def presentation():
                  'svg:y="2in"><draw:text-box>')
         for b in bullets:
             body += '<text:p>%s</text:p>' % esc(b)
-        body += '</draw:text-box></draw:frame>\n</draw:page>\n'
+        body += '</draw:text-box></draw:frame>\n'
+        # What the presenter was going to say. It travels with the deck and is never on the slide.
+        body += ('<presentation:notes><draw:frame presentation:class="notes" svg:width="6in" svg:height="4in" '
+                 'svg:x="1in" svg:y="1in"><draw:text-box><text:p>%s</text:p></draw:text-box></draw:frame>'
+                 '</presentation:notes>\n' % esc(notes))
+        body += '</draw:page>\n'
     return ('<?xml version="1.0" encoding="UTF-8"?>\n<office:document %s '
             'office:mimetype="application/vnd.oasis.opendocument.presentation">\n'
             '<office:body><office:presentation>\n%s</office:presentation></office:body></office:document>\n'

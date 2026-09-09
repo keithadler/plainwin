@@ -138,6 +138,28 @@ public sealed class SheetView : Grid
         };
         _editor.KeyDown += EditorKey;
         _editor.LostFocus += (_, _) => CommitEditor();
+
+        // Offer what is already in the column. The rest of the word is selected, so carrying on typing replaces
+        // it and pressing Enter or Tab takes it: nothing is put in without the person agreeing to it.
+        _editor.TextChanged += (_, _) =>
+        {
+            if (_suggesting) return;
+            if (_editor.SelectionLength > 0) return;
+            if (_editor.CaretIndex != _editor.Text.Length) return;
+
+            var typed = _editor.Text;
+            if (typed.StartsWith('=')) return;   // a formula is not a name from the column
+
+            var offer = _sheet.Suggest(_selected.Column, _selected.Row, typed);
+            if (offer is null) return;
+
+            _suggesting = true;
+            _editor.Text = offer;
+            _editor.CaretIndex = typed.Length;
+            _editor.SelectionStart = typed.Length;
+            _editor.SelectionLength = offer.Length - typed.Length;
+            _suggesting = false;
+        };
         host.Children.Add(_editor);
 
         SetRow(_vertical, 1); SetColumn(_vertical, 2); Children.Add(_vertical);
@@ -448,6 +470,10 @@ public sealed class SheetView : Grid
     /// <summary>Asked to filter on a column; the window asks for the text, because it owns the dialogs.</summary>
     public event Action<int, int>? FilterRequested;
 
+    /// <summary>Asked to tidy the selection, and to say what a cell takes part in.</summary>
+    public event Action<string, string>? TidyRequested;
+    public event Action<CellRef>? TraceRequested;
+
     /// <summary>Asked to sort the selection by a column; the window does it, because it owns undo and the message.</summary>
     public event Action<int, int, int, int, int, bool>? SortRequested;
 
@@ -493,6 +519,23 @@ public sealed class SheetView : Grid
             menu.Items.Add(entry);
         }
         menu.Items.Add(new Separator());
+        var tidy = new MenuItem { Header = "Tidy these rows" };
+        void TidyItem(string text, string what, string on)
+        {
+            var entry = new MenuItem { Header = text };
+            entry.Click += (_, _) => TidyRequested?.Invoke(what, on);
+            tidy.Items.Add(entry);
+        }
+        TidyItem("Take out rows that say the same thing", "dedupe", "");
+        TidyItem("Split this column at a comma", "split", ",");
+        TidyItem("Split this column at a space", "split", " ");
+        menu.Items.Add(tidy);
+
+        var reads = new MenuItem { Header = "What this cell reads, and what reads it" };
+        reads.Click += (_, _) => TraceRequested?.Invoke(_selected);
+        menu.Items.Add(reads);
+
+        menu.Items.Add(new Separator());
         var filter = new MenuItem { Header = "Show only rows where this column..." };
         filter.Click += (_, _) => FilterRequested?.Invoke(Range.Left, Range.Top);
         menu.Items.Add(filter);
@@ -533,6 +576,25 @@ public sealed class SheetView : Grid
             bool on = !_sheet.AlignmentAt(_selected).Wrap;
             _sheet.SetAlignment(cells, null, on);
             AfterLook(cells, was);
+        });
+        look.Items.Add(new Separator());
+        foreach (var (name, code) in Styles.Weights)
+        {
+            var weight = code;
+            Look($"{name} lines round them", () =>
+            {
+                var cells = InRange().ToList();
+                var was = cells.Select(c => _sheet.BorderAt(c).ToList()).ToList();
+                _sheet.SetBorder(cells, new[] { "all" }, weight, "808080");
+                AfterBorder(cells, was);
+            });
+        }
+        Look("No lines round them", () =>
+        {
+            var cells = InRange().ToList();
+            var was = cells.Select(c => _sheet.BorderAt(c).ToList()).ToList();
+            _sheet.SetBorder(cells, new[] { "all" }, "", "");
+            AfterBorder(cells, was);
         });
         look.Items.Add(new Separator());
         foreach (var (name, fill) in new[]
@@ -741,6 +803,9 @@ public sealed class SheetView : Grid
         Focus();
         return true;
     }
+
+    /// <summary>True while the offer is being put in, so putting it in does not set off another offer.</summary>
+    private bool _suggesting;
 
     private void CancelEdit() { _editor.Visibility = Visibility.Collapsed; Focus(); }
 
@@ -960,6 +1025,23 @@ public sealed class SheetView : Grid
         for (int r = top; r <= bottom; r++)
             for (int c = left; c <= right; c++)
                 yield return new CellRef(c, r);
+    }
+
+    /// <summary>Put the lines back the way they were, cell by cell.</summary>
+    private void AfterBorder(List<CellRef> cells, List<List<(string Side, string Style)>> was)
+    {
+        var now = cells.Select(c => _sheet.BorderAt(c).ToList()).ToList();
+        Redraw();
+        void Put(List<List<(string Side, string Style)>> want)
+        {
+            for (int i = 0; i < cells.Count; i++)
+            {
+                _sheet.SetBorder(new[] { cells[i] }, new[] { "all" }, "", "");
+                foreach (var (side, style) in want[i]) _sheet.SetBorder(new[] { cells[i] }, new[] { side }, style, "808080");
+            }
+            Redraw();
+        }
+        Raise(() => Put(was), () => Put(now));
     }
 
     /// <summary>Put alignment back the way it was, cell by cell, which is what undo needs.</summary>

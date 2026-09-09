@@ -283,6 +283,8 @@ public partial class MainWindow : Window
                 bookView.SortRequested += (t, b, l, r, key, up) => SortRows(entry, bookView, t, b, l, r, key, up);
                 bookView.FilterRequested += (column, row) => FilterRows(bookView, column, row);
                 bookView.SheetChangeRequested += (what, at) => ChangeSheet(what, at);
+                bookView.TidyRequested += (what, on) => TidyRows(entry, bookView, what, on);
+                bookView.TraceRequested += cell => ShowTrace(bookView, cell);
                 break;
             }
             case FileKind.Document:
@@ -644,6 +646,151 @@ public partial class MainWindow : Window
         view.ShowAlignment(index);
         Say(where == "general" ? "That paragraph sits however its style says." : $"That paragraph is now {where}.");
         Refresh();
+    }
+
+    /// <summary>What the presenter was going to say, which travels with the deck whether or not anyone looks.</summary>
+    private void OnSpeakerNotes(object sender, RoutedEventArgs e)
+    {
+        if (_active is null) return;
+        var notes = Core.Described.Notes(_active.File);
+        if (notes.Count == 0)
+        {
+            MessageBox.Show(this, "No slide in this deck has notes on it.", "Plain",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var boxes = new List<(TextBox Box, Core.Described.Note Note)>();
+        var stack = new StackPanel { Margin = new Thickness(18) };
+        stack.Children.Add(new TextBlock
+        {
+            Text = "These travel with the deck. Nobody sees them on the slide.",
+            TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 12),
+        });
+
+        foreach (var note in notes)
+        {
+            stack.Children.Add(new TextBlock
+            {
+                Text = $"Slide {note.Slide}", FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 8, 0, 4),
+            });
+            var box = new TextBox
+            {
+                Text = note.Text, Padding = new Thickness(6, 4, 6, 4), TextWrapping = TextWrapping.Wrap,
+                AcceptsReturn = true, MaxHeight = 90, VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            };
+            boxes.Add((box, note));
+            stack.Children.Add(box);
+        }
+
+        var ok = new Button { Content = "Change them", IsDefault = true, MinWidth = 104, Margin = new Thickness(0, 16, 8, 0) };
+        var cancel = new Button { Content = "Leave it", IsCancel = true, MinWidth = 90, Margin = new Thickness(0, 16, 0, 0) };
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+        buttons.Children.Add(ok); buttons.Children.Add(cancel);
+        stack.Children.Add(buttons);
+
+        var window = new Window
+        {
+            Title = "Speaker notes", Content = new ScrollViewer { Content = stack }, Owner = this,
+            Width = 600, Height = 560, WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Background = App.B("Chrome"), Foreground = App.B("Ink"),
+        };
+        ok.Click += (_, _) => { window.DialogResult = true; };
+        if (window.ShowDialog() != true) return;
+
+        int changed = 0;
+        foreach (var (box, note) in boxes)
+            if (box.Text != note.Text && Core.Described.WriteNotes(_active.File.Package, note.Part, box.Text)) changed++;
+
+        if (changed == 0) { Say("Nothing was changed."); return; }
+        _active.Dirty = true;
+        Say($"Changed the notes on {changed} slide{(changed == 1 ? "" : "s")}. Save the file to write it back.");
+        Refresh();
+    }
+
+    /// <summary>
+    /// The words that describe a picture to somebody who cannot see it. The thing everyone is asked for and skips,
+    /// and the reason a document is unreadable to a screen reader.
+    /// </summary>
+    private void OnDescribe(object sender, RoutedEventArgs e)
+    {
+        if (_active is null) return;
+        var pictures = Core.Described.Pictures(_active.File);
+        if (pictures.Count == 0)
+        {
+            MessageBox.Show(this, "There are no pictures in this file.", "Plain",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var boxes = new List<(TextBox Box, Core.Described.Described_ Picture)>();
+        var stack = new StackPanel { Margin = new Thickness(18) };
+        int without = pictures.Count(x => x.Text.Length == 0);
+        stack.Children.Add(new TextBlock
+        {
+            Text = without == 0
+                ? "Every picture in this file is described."
+                : $"{without} of {pictures.Count} have nothing describing them.",
+            TextWrapping = TextWrapping.Wrap, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 12),
+        });
+
+        foreach (var picture in pictures)
+        {
+            stack.Children.Add(new TextBlock
+            {
+                Text = $"{picture.Where}: {picture.Name}", Margin = new Thickness(0, 8, 0, 4),
+                Foreground = picture.Text.Length == 0 ? App.B("Ink") : App.B("Ink2"),
+            });
+            var box = new TextBox { Text = picture.Text, Padding = new Thickness(6, 4, 6, 4), TextWrapping = TextWrapping.Wrap };
+            boxes.Add((box, picture));
+            stack.Children.Add(box);
+        }
+
+        var ok = new Button { Content = "Describe them", IsDefault = true, MinWidth = 110, Margin = new Thickness(0, 16, 8, 0) };
+        var cancel = new Button { Content = "Leave it", IsCancel = true, MinWidth = 90, Margin = new Thickness(0, 16, 0, 0) };
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+        buttons.Children.Add(ok); buttons.Children.Add(cancel);
+        stack.Children.Add(buttons);
+
+        var window = new Window
+        {
+            Title = "Describe the pictures", Content = new ScrollViewer { Content = stack }, Owner = this,
+            Width = 600, Height = 520, WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Background = App.B("Chrome"), Foreground = App.B("Ink"),
+        };
+        ok.Click += (_, _) => { window.DialogResult = true; };
+        if (window.ShowDialog() != true) return;
+
+        int changed = 0;
+        foreach (var (box, picture) in boxes)
+            if (box.Text != picture.Text)
+                changed += Core.Described.DescribePictures(_active.File, picture.Where, picture.Name, box.Text);
+
+        if (changed == 0) { Say("Nothing was changed."); return; }
+        _active.Dirty = true;
+        Say($"Described {changed} picture{(changed == 1 ? "" : "s")}. Save the file to write it back.");
+        Refresh();
+    }
+
+    /// <summary>
+    /// Put a picture at the end of a document. Nothing is scaled or re-encoded, so what goes in is the file you
+    /// chose. Like any change to the package, the view is built again afterwards.
+    /// </summary>
+    private void OnPutPicture(object sender, RoutedEventArgs e)
+    {
+        if (_active is null) return;
+        CommitPendingEdit();
+
+        var picker = new OpenFileDialog
+        {
+            Title = "Which picture?",
+            Filter = "Pictures|*.png;*.jpg;*.jpeg;*.gif;*.bmp|All files|*.*",
+        };
+        if (picker.ShowDialog(this) != true) return;
+
+        var outcome = Core.Insert.Picture(_active.File, picker.FileName, 8);
+        if (outcome is Core.Insert.Refused refused) { Say(refused.Reason); return; }
+        AfterShapeChange(((Core.Insert.Done)outcome).What);
     }
 
     /// <summary>
@@ -1027,6 +1174,84 @@ public partial class MainWindow : Window
         _active.Dirty = true;
         Say(string.Join(" ", did) + " Save the file to write it back.");
         Refresh();
+    }
+
+    /// <summary>
+    /// Taking out rows that say the same thing, and splitting a column. Both refuse where a formula would be made
+    /// to mean something else, and both say why. The whole block is kept for undo before anything moves.
+    /// </summary>
+    private void TidyRows(OpenFile entry, WorkbookView view, string what, string on)
+    {
+        if (entry.File.Workbook is not { } book) return;
+        var sheet = view.CurrentSheet;
+        var (left, top, right, bottom) = view.Selection;
+
+        // Taking out duplicates works on whole rows: judging a row by one column and moving only that column
+        // would tear the row apart.
+        if (what == "dedupe" && left == right) { left = 1; right = Math.Max(1, sheet.Extent.Column); }
+        if (what == "split") right = Math.Max(right, left + 8);
+
+        var before = new List<(Core.CellRef At, string Value)>();
+        for (int r = top; r <= bottom; r++)
+            for (int c = left; c <= right; c++)
+            {
+                var cell = sheet.Read(new Core.CellRef(c, r));
+                before.Add((new Core.CellRef(c, r),
+                    cell.Kind is Core.CellKind.Number or Core.CellKind.Boolean ? cell.Raw
+                    : cell.Kind == Core.CellKind.Empty ? "" : cell.Display));
+            }
+
+        var outcome = what == "dedupe"
+            ? Core.Tidy.RemoveDuplicates(book, sheet, top, bottom, left, right)
+            : Core.Tidy.SplitColumn(book, sheet, view.Selection.Left, top, bottom, on);
+
+        if (outcome is Core.Tidy.Refused refused) { Say(refused.Reason); return; }
+
+        entry.Undo.Push(new Edit(
+            () => { foreach (var (at, value) in before) sheet.Set(at, value); view.Redraw(); },
+            null));
+        entry.Redo.Clear();
+        entry.Dirty = true;
+        view.Redraw();
+        Say(((Core.Tidy.Done)outcome).What);
+        Refresh();
+    }
+
+    /// <summary>
+    /// What a cell's formula reads, and what reads the cell. The question behind most spreadsheet mistakes: a
+    /// total looks wrong and you cannot see what it is adding up. The answer is in the file already.
+    /// </summary>
+    private void ShowTrace(WorkbookView view, Core.CellRef cell)
+    {
+        if (_active?.File.Workbook is not { } book) return;
+        var sheet = view.CurrentSheet;
+        var reads = Core.Traces.Reads(book, sheet, cell);
+        var readBy = Core.Traces.ReadBy(book, sheet, cell);
+
+        var stack = new StackPanel { Margin = new Thickness(18) };
+        void Heading(string text) => stack.Children.Add(new TextBlock
+        {
+            Text = text, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 10, 0, 6), TextWrapping = TextWrapping.Wrap,
+        });
+        void Line(string where, string what) => stack.Children.Add(new TextBlock
+        {
+            Text = $"{where}    {what}", TextWrapping = TextWrapping.Wrap, FontSize = 12,
+            Foreground = App.B("Ink2"), Margin = new Thickness(0, 0, 0, 2),
+        });
+
+        Heading(reads.Count == 0 ? $"{cell} holds no formula, so it reads nothing." : $"{cell} reads");
+        foreach (var t in reads) Line(t.Where, t.What);
+
+        Heading(readBy.Count == 0 ? $"Nothing else reads {cell}." : $"{cell} is read by");
+        foreach (var t in readBy) Line(t.Where, t.What);
+
+        var window = new Window
+        {
+            Title = $"What {cell} takes part in", Content = new ScrollViewer { Content = stack }, Owner = this,
+            Width = 600, Height = 420, WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Background = App.B("Chrome"), Foreground = App.B("Ink"),
+        };
+        window.ShowDialog();
     }
 
     /// <summary>
@@ -1705,6 +1930,10 @@ public partial class MainWindow : Window
             item.Visibility = hasTables ? Visibility.Visible : Visibility.Collapsed;
         ShapeSeparator.Visibility = isDeck || hasTables ? Visibility.Visible : Visibility.Collapsed;
         BandsItem.Visibility = _active?.File.Document is not null ? Visibility.Visible : Visibility.Collapsed;
+        PictureItem.Visibility = _active?.File.Document is not null ? Visibility.Visible : Visibility.Collapsed;
+        NotesItem.Visibility = isDeck ? Visibility.Visible : Visibility.Collapsed;
+        DescribeItem.Visibility = _active?.File.Kind is FileKind.Document or FileKind.Presentation
+            ? Visibility.Visible : Visibility.Collapsed;
         LinksItem.Visibility = _active is not null ? Visibility.Visible : Visibility.Collapsed;
         SaveBtn.Content = _active?.Dirty == true ? "Save" : "Saved";
 

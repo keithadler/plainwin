@@ -1,5 +1,29 @@
 # Changelog
 
+## 1.4.0, 2026-09-09
+
+**Lines round cells.** Thin, medium, thick, dotted, dashed or double, on all four sides or one at a time.
+
+**Taking out rows that say the same thing, and splitting a column.** The two jobs everyone does to a list and nobody enjoys. Both refuse where a formula would be made to mean something else, and splitting refuses rather than writing over the column beside it.
+
+**What a cell reads, and what reads it.** The question behind most spreadsheet mistakes: a total looks wrong and you cannot see what it is adding up. Right-click a cell and Plain says, both ways.
+
+**The choices a cell will accept.** A sheet someone else built often has cells that only take certain values. Plain does not draw the little arrow, but it reads the rule and says what it wants, which beats a cell that silently refuses what you type.
+
+**Speaker notes, read and changed.** What the presenter was going to say travels with every copy of the deck and nobody sees it on the slide.
+
+**The words that describe a picture.** The thing everyone is asked for and skips. Plain lists every picture, says which have nothing describing them, and writes the description where both Word and PowerPoint will read it.
+
+**Links you can make, not only read.** Put a link on a paragraph, or take one off. Only ordinary web and mail addresses: Plain will not write into a document a link it would refuse to open.
+
+**A picture put into a document.** Nothing is scaled or re-encoded, so what goes in is the file you chose.
+
+**What is already in the column, offered as you type.** A list of clients typed slightly differently each time is the most common way a spreadsheet quietly goes wrong.
+
+**Console twin.** `plain border`, `plain tidy`, `plain reads`, `plain choices`, `plain notes`, `plain describe`, `plain link`, `plain picture`.
+
+1,014 checks, up from 939.
+
 ## 1.3.0, 2026-09-09
 
 **Sheets can be added, renamed, moved and taken out**, which slides could already do and sheets could not. Renaming rewrites every formula in the workbook that named the sheet, and says how many it changed; taking one out is refused while any formula still reads it.

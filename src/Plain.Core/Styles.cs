@@ -272,6 +272,97 @@ public sealed class Styles
         return Adopt(cellXfs, all, wanted, currentStyle);
     }
 
+    /// <summary>
+    /// Lines round a cell. Which sides, how heavy, and what colour. An empty style takes the lines away.
+    ///
+    /// A border in the file is a set of five sides in a fixed order, and Excel refuses a file that puts them in
+    /// any other, so this always rebuilds all five rather than editing one in place.
+    /// </summary>
+    public int WithBorder(int currentStyle, IReadOnlyCollection<string> sides, string style, string colour)
+    {
+        var (cellXfs, all, basis) = Formats(currentStyle);
+        var borders = _doc!.Root!.Element(D.Sheet + "borders")
+            ?? throw new OpcPackage.PackageException("This workbook's style table has no borders.");
+        var allBorders = borders.Elements(D.Sheet + "border").ToList();
+
+        int borderId = Xml.Int(basis.Attribute("borderId"), 0);
+        var from = borderId >= 0 && borderId < allBorders.Count ? allBorders[borderId] : allBorders.FirstOrDefault();
+        var wanted = from is null ? new XElement(D.Sheet + "border") : new XElement(from);
+
+        // Every side, in the order the format lays down, whether or not this call touches it.
+        var keep = new Dictionary<string, XElement?>();
+        foreach (var side in Order) keep[side] = wanted.Element(D.Sheet + side);
+        wanted.RemoveNodes();
+
+        foreach (var side in Order)
+        {
+            var element = new XElement(D.Sheet + side);
+            bool touching = sides.Contains(side, StringComparer.OrdinalIgnoreCase)
+                         || (sides.Contains("all", StringComparer.OrdinalIgnoreCase) && side != "diagonal");
+
+            if (touching && style.Length > 0)
+            {
+                element.SetAttributeValue("style", style);
+                if (colour.Length > 0)
+                    element.Add(new XElement(D.Sheet + "color", new XAttribute("rgb", "FF" + Hex(colour))));
+            }
+            else if (!touching && keep[side] is { } was)
+            {
+                // A side this call says nothing about keeps whatever it had.
+                element = new XElement(was);
+            }
+            wanted.Add(element);
+        }
+
+        int index = allBorders.FindIndex(b => XNode.DeepEquals(b, wanted));
+        if (index < 0)
+        {
+            borders.Add(wanted);
+            borders.SetAttributeValue("count", allBorders.Count + 1);
+            index = allBorders.Count;
+            _dirty = true;
+        }
+
+        var made = new XElement(basis);
+        made.SetAttributeValue("borderId", index);
+        made.SetAttributeValue("applyBorder", "1");
+        return Adopt(cellXfs, all, made, currentStyle);
+    }
+
+    /// <summary>The order the five sides of a border have to be written in.</summary>
+    private static readonly string[] Order = { "left", "right", "top", "bottom", "diagonal" };
+
+    /// <summary>Which sides of this cell have a line, and how heavy each is.</summary>
+    public IReadOnlyList<(string Side, string Style)> BorderAt(int styleIndex)
+    {
+        var found = new List<(string, string)>();
+        var root = _doc?.Root;
+        var all = root?.Element(D.Sheet + "cellXfs")?.Elements(D.Sheet + "xf").ToList();
+        if (root is null || all is null || styleIndex < 0 || styleIndex >= all.Count) return found;
+
+        var borders = root.Element(D.Sheet + "borders")?.Elements(D.Sheet + "border").ToList();
+        int id = Xml.Int(all[styleIndex].Attribute("borderId"), 0);
+        if (borders is null || id < 0 || id >= borders.Count) return found;
+
+        foreach (var side in Order)
+        {
+            var style = (string?)borders[id].Element(D.Sheet + side)?.Attribute("style");
+            if (!string.IsNullOrEmpty(style)) found.Add((side, style));
+        }
+        return found;
+    }
+
+    /// <summary>The weights people ask for, and what the file calls them.</summary>
+    public static readonly (string Name, string Code)[] Weights =
+    {
+        ("Thin", "thin"),
+        ("Medium", "medium"),
+        ("Thick", "thick"),
+        ("Dotted", "dotted"),
+        ("Dashed", "dashed"),
+        ("Double", "double"),
+    };
+
     /// <summary>The colours a cell is wearing, as six hex digits, or empty where it wears none.</summary>
     public (string Background, string Ink) ColoursAt(int styleIndex)
     {

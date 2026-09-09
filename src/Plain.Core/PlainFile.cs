@@ -39,6 +39,12 @@ public sealed class PlainFile
     public static PlainFile Open(string path) => new(path, OpcPackage.Open(path));
 
     /// <summary>
+    /// The same file, read again from the package as it now is, without first writing the models over it. Used
+    /// after something has changed the package directly, where flushing would put the older copy back.
+    /// </summary>
+    public PlainFile Reopened() => Read(Package.ToBytes(), Path);
+
+    /// <summary>
     /// Open from bytes already in hand. The path is what the file will be saved back to; leaving it out means the
     /// file has no home yet, and Save must then be told where to put it.
     /// </summary>

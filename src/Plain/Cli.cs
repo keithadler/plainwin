@@ -13,10 +13,10 @@ namespace Plain;
 /// </summary>
 public static class Cli
 {
-    public const string Version = "1.3.0";
+    public const string Version = "1.4.0";
 
     private static readonly string[] Verbs =
-        { "info", "parts", "text", "cells", "get", "set", "new", "replace", "row", "column", "width", "freeze", "sort", "explorer", "slide", "tablerow", "hidden", "find", "sheet", "height", "align", "colour", "band", "links", "compare", "props", "pdf", "csv", "import", "count", "images", "apply", "changes", "comments", "roundtrip", "selftest", "version", "help", "--help", "-h", "--version" };
+        { "info", "parts", "text", "cells", "get", "set", "new", "replace", "row", "column", "width", "freeze", "sort", "explorer", "slide", "tablerow", "hidden", "find", "sheet", "height", "align", "colour", "band", "links", "compare", "border", "tidy", "reads", "choices", "notes", "describe", "link", "picture", "props", "pdf", "csv", "import", "count", "images", "apply", "changes", "comments", "roundtrip", "selftest", "version", "help", "--help", "-h", "--version" };
 
     public static bool IsVerb(string arg) => Verbs.Contains(arg, StringComparer.OrdinalIgnoreCase);
 
@@ -69,6 +69,14 @@ public static class Cli
           plain band <file> [--set <n> "<text>"]   the lines along the top and bottom of every page
           plain links <file>               every link, and where it actually goes
           plain compare <before> <after>   what changed between two versions of a file
+          plain border <file> <range> <weight|none> [--sides all|top,left] [--colour RRGGBB] [--sheet <n>]
+          plain tidy <file> dedupe|split <range> [--on ","] [--sheet <n>]
+          plain reads <file> <cell> [--sheet <n>]   what a formula reads, and what reads the cell
+          plain choices <file> [--sheet <n>]        the choices cells will accept
+          plain notes <file> [--set <slide> "<text>"]   what the presenter was going to say
+          plain describe <file> [--set "<text>"]    the words that describe each picture
+          plain link <file> <paragraph> <address>|off   put a link on a paragraph
+          plain picture <file> <image> [--cm 8]     put a picture at the end of a document
 
         For pdf: --paper A4|Letter|Legal|A3|A5  --landscape  --margin <mm>
                  --header "<text>"  --footer "<text>"   with {page} and {pages}
@@ -553,6 +561,178 @@ public static class Cli
                     o.WriteLine($"{report.Parts.Count} part{(report.Parts.Count == 1 ? "" : "s")} differ, "
                               + $"{report.Same} the same, {report.Text.Count} line{(report.Text.Count == 1 ? "" : "s")} of text.");
                     return report.Parts.Count == 0 && report.Text.Count == 0 ? 0 : 1;
+                }
+
+                case "border":
+                {
+                    if (rest.Count < 3) { err.WriteLine("border <file> <range> <weight|none> [--sides ...] [--colour RRGGBB]"); return 64; }
+                    var file = PlainFile.Open(rest[0]);
+                    if (file.Workbook is null) { err.WriteLine("border only works on a spreadsheet."); return 2; }
+                    var sheet = PickSheet(file.Workbook, Value(args, "--sheet"));
+                    if (sheet is null) { err.WriteLine("no sheet by that name."); return 2; }
+
+                    var cells = Block(rest[1]);
+                    if (cells.Count == 0) { err.WriteLine("a range looks like B2 or A2:D40."); return 64; }
+
+                    string weight = rest[2].Equals("none", StringComparison.OrdinalIgnoreCase) ? "" : rest[2].ToLowerInvariant();
+                    if (weight.Length > 0 && !Styles.Weights.Any(w => w.Code == weight))
+                    { err.WriteLine("weights: " + string.Join(", ", Styles.Weights.Select(w => w.Code)) + ", or none"); return 64; }
+
+                    var sides = (Value(args, "--sides") ?? "all")
+                        .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                    sheet.SetBorder(cells, sides, weight, Value(args, "--colour") ?? "");
+                    file.Flush();
+                    File.WriteAllBytes(file.Path, file.Package.ToBytes());
+                    o.WriteLine($"{cells.Count} cell{(cells.Count == 1 ? "" : "s")} on {sheet.Name} changed");
+                    return 0;
+                }
+
+                case "tidy":
+                {
+                    if (rest.Count < 3) { err.WriteLine("tidy <file> dedupe|split <range> [--on \",\"]"); return 64; }
+                    var file = PlainFile.Open(rest[0]);
+                    if (file.Workbook is null) { err.WriteLine("tidy only works on a spreadsheet."); return 2; }
+                    var sheet = PickSheet(file.Workbook, Value(args, "--sheet"));
+                    if (sheet is null) { err.WriteLine("no sheet by that name."); return 2; }
+
+                    var ends = rest[2].Split(':');
+                    if (!CellRef.TryParse(ends[0], out var from)) { err.WriteLine("a range looks like A2:D40."); return 64; }
+                    var to = ends.Length > 1 && CellRef.TryParse(ends[1], out var second) ? second : from;
+
+                    var outcome = rest[1].ToLowerInvariant() switch
+                    {
+                        "dedupe" => Tidy.RemoveDuplicates(file.Workbook, sheet,
+                            Math.Min(from.Row, to.Row), Math.Max(from.Row, to.Row),
+                            Math.Min(from.Column, to.Column), Math.Max(from.Column, to.Column)),
+                        "split" => Tidy.SplitColumn(file.Workbook, sheet, from.Column,
+                            Math.Min(from.Row, to.Row), Math.Max(from.Row, to.Row), Value(args, "--on") ?? ","),
+                        _ => new Tidy.Refused("dedupe or split"),
+                    };
+                    if (outcome is Tidy.Refused refused) { err.WriteLine(refused.Reason); return 2; }
+                    file.Flush();
+                    File.WriteAllBytes(file.Path, file.Package.ToBytes());
+                    o.WriteLine(((Tidy.Done)outcome).What);
+                    return 0;
+                }
+
+                case "reads":
+                {
+                    if (rest.Count < 2) { err.WriteLine("reads <file> <cell> [--sheet <n>]"); return 64; }
+                    var file = PlainFile.Open(rest[0]);
+                    if (file.Workbook is null) { err.WriteLine("reads only works on a spreadsheet."); return 2; }
+                    var sheet = PickSheet(file.Workbook, Value(args, "--sheet"));
+                    if (sheet is null) { err.WriteLine("no sheet by that name."); return 2; }
+                    if (!CellRef.TryParse(rest[1], out var cell)) { err.WriteLine("a cell is a letter and a number."); return 64; }
+
+                    var reads = Traces.Reads(file.Workbook, sheet, cell);
+                    var readBy = Traces.ReadBy(file.Workbook, sheet, cell);
+
+                    o.WriteLine(reads.Count == 0 ? $"{cell} holds no formula, so it reads nothing."
+                                                 : $"{cell} reads:");
+                    foreach (var t in reads) o.WriteLine($"    {t.Where}   {t.What}");
+                    o.WriteLine();
+                    o.WriteLine(readBy.Count == 0 ? $"Nothing reads {cell}." : $"{cell} is read by:");
+                    foreach (var t in readBy) o.WriteLine($"    {t.Where}   {t.What}");
+                    return 0;
+                }
+
+                case "choices":
+                {
+                    if (rest.Count < 1) { err.WriteLine("choices <file> [--sheet <n>]"); return 64; }
+                    var file = PlainFile.Open(rest[0]);
+                    if (file.Workbook is null) { err.WriteLine("choices only works on a spreadsheet."); return 2; }
+
+                    int found = 0;
+                    foreach (var sheet in file.Workbook.Sheets)
+                        foreach (var rule in Choices.On(file.Package, sheet))
+                        {
+                            found++;
+                            o.WriteLine($"{sheet.Name}!{rule.Where}: {rule.Kind}");
+                            if (rule.Allowed.Count > 0) o.WriteLine("    " + string.Join(", ", rule.Allowed));
+                            else if (rule.Formula.Length > 0) o.WriteLine("    " + rule.Formula);
+                            if (rule.Says.Length > 0) o.WriteLine("    " + rule.Says);
+                        }
+                    if (found == 0) { o.WriteLine("No cells in this workbook restrict what they will take."); return 1; }
+                    return 0;
+                }
+
+                case "notes":
+                {
+                    if (rest.Count < 1) { err.WriteLine("notes <file> [--set <slide> \"<text>\"]"); return 64; }
+                    var file = PlainFile.Open(rest[0]);
+                    if (file.Deck is null) { err.WriteLine("notes only works on a presentation."); return 2; }
+
+                    var notes = Described.Notes(file);
+                    if (notes.Count == 0) { o.WriteLine("No slide in this deck has notes."); return 1; }
+                    foreach (var note in notes)
+                        o.WriteLine($"slide {note.Slide}: {note.Text.Replace(Environment.NewLine, " / ")}");
+
+                    var which = Value(args, "--set");
+                    if (which is null) return 0;
+                    if (!int.TryParse(which, out var slide)) { err.WriteLine("--set takes a slide number."); return 64; }
+                    var target = notes.FirstOrDefault(n => n.Slide == slide);
+                    if (target is null) { err.WriteLine($"slide {slide} has no notes part to write into."); return 2; }
+                    if (rest.Count < 2) { err.WriteLine("say what the notes should read."); return 64; }
+
+                    Described.WriteNotes(file.Package, target.Part, rest[1]);
+                    file.Flush();
+                    File.WriteAllBytes(file.Path, file.Package.ToBytes());
+                    o.WriteLine();
+                    o.WriteLine($"slide {slide} now reads: {rest[1]}");
+                    return 0;
+                }
+
+                case "describe":
+                {
+                    if (rest.Count < 1) { err.WriteLine("describe <file> [--set \"<text>\"]"); return 64; }
+                    var file = PlainFile.Open(rest[0]);
+                    var pictures = Described.Pictures(file);
+                    if (pictures.Count == 0) { o.WriteLine("No pictures in this file."); return 1; }
+
+                    foreach (var picture in pictures)
+                        o.WriteLine($"{picture.Where}: {picture.Name}"
+                                  + (picture.Text.Length == 0 ? "   (nothing describes it)" : $"   {picture.Text}"));
+
+                    var text = Value(args, "--set");
+                    if (text is null) return pictures.Any(x => x.Text.Length == 0) ? 1 : 0;
+
+                    int changed = 0;
+                    foreach (var picture in pictures.Where(x => x.Text.Length == 0))
+                        changed += Described.DescribePictures(file, picture.Where, picture.Name, text);
+                    file.Flush();
+                    File.WriteAllBytes(file.Path, file.Package.ToBytes());
+                    o.WriteLine();
+                    o.WriteLine($"described {changed} that had nothing.");
+                    return 0;
+                }
+
+                case "link":
+                {
+                    if (rest.Count < 3) { err.WriteLine("link <file> <paragraph> <address>|off"); return 64; }
+                    var file = PlainFile.Open(rest[0]);
+                    if (!int.TryParse(rest[1], out var block) || block < 1) { err.WriteLine("a paragraph is a number from 1."); return 64; }
+
+                    var outcome = rest[2].Equals("off", StringComparison.OrdinalIgnoreCase)
+                        ? Insert.Unlink(file, block - 1)
+                        : Insert.Link(file, block - 1, rest[2]);
+                    if (outcome is Insert.Refused refused) { err.WriteLine(refused.Reason); return 2; }
+                    File.WriteAllBytes(file.Path, file.Package.ToBytes());
+                    o.WriteLine(((Insert.Done)outcome).What);
+                    return 0;
+                }
+
+                case "picture":
+                {
+                    if (rest.Count < 2) { err.WriteLine("picture <file> <image> [--cm 8]"); return 64; }
+                    var file = PlainFile.Open(rest[0]);
+                    double cm = double.TryParse(Value(args, "--cm"), System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out var given) ? given : 8;
+
+                    var outcome = Insert.Picture(file, rest[1], cm);
+                    if (outcome is Insert.Refused refused) { err.WriteLine(refused.Reason); return 2; }
+                    File.WriteAllBytes(file.Path, file.Package.ToBytes());
+                    o.WriteLine(((Insert.Done)outcome).What);
+                    return 0;
                 }
 
                 case "explorer":

@@ -26,6 +26,11 @@ public sealed class WorkbookView : Grid, IFindable
     public event Action<GridEdit, int>? GridChangeRequested;
     public event Action<int, int, int, int, int, bool>? SortRequested;
     public event Action<int, int>? FilterRequested;
+    public event Action<string, string>? TidyRequested;
+    public event Action<CellRef>? TraceRequested;
+
+    /// <summary>What is selected on the sheet in front, for the window to work on.</summary>
+    public (int Left, int Top, int Right, int Bottom) Selection => _current.Range;
 
     /// <summary>Asked to do something to a sheet rather than in one; the window owns the questions and the undo.</summary>
     public event Action<string, int>? SheetChangeRequested;
@@ -91,6 +96,8 @@ public sealed class WorkbookView : Grid, IFindable
             grid.GridChangeRequested += (edit, at) => GridChangeRequested?.Invoke(edit, at);
             grid.SortRequested += (t, b, l, r, key, up) => SortRequested?.Invoke(t, b, l, r, key, up);
             grid.FilterRequested += (column, row) => FilterRequested?.Invoke(column, row);
+            grid.TidyRequested += (what, on) => TidyRequested?.Invoke(what, on);
+            grid.TraceRequested += cell => TraceRequested?.Invoke(cell);
             _grids[sheet] = grid;
         }
         _current = grid;

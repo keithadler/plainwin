@@ -948,6 +948,54 @@ public sealed class Sheet
     public (string Background, string Ink) ColoursAt(CellRef reference) =>
         _book.Styles.ColoursAt(Xml.Int(FindCell(reference)?.Attribute("s"), 0));
 
+    /// <summary>
+    /// What else is in this column that starts the same way. Typing "Wood" in a column already full of "Woodland
+    /// Ave Partners" should offer it, because a list of clients typed slightly differently each time is the most
+    /// common way a spreadsheet quietly goes wrong.
+    ///
+    /// Only text, only above the cell being typed into, and only whole values: it offers what is there rather than
+    /// inventing something.
+    /// </summary>
+    public string? Suggest(int column, int row, string typed)
+    {
+        if (typed.Length == 0) return null;
+        // Someone typing a number means the number, and offering to finish it would be maddening.
+        if (double.TryParse(typed, NumberStyles.Any, CultureInfo.InvariantCulture, out _)) return null;
+
+        string? best = null;
+        int look = Math.Max(1, row - 500);
+        for (int r = row - 1; r >= look; r--)
+        {
+            var cell = Read(new CellRef(column, r));
+            if (cell.Kind is not (CellKind.Text or CellKind.Formula) || cell.Formula is not null) continue;
+
+            var value = cell.Display;
+            if (value.Length <= typed.Length) continue;
+            if (!value.StartsWith(typed, StringComparison.CurrentCultureIgnoreCase)) continue;
+
+            // The nearest one above wins, which is what someone filling a column down expects.
+            best = value;
+            break;
+        }
+        return best;
+    }
+
+    /// <summary>Put lines round these cells. An empty style takes away the lines on the sides named.</summary>
+    public void SetBorder(IEnumerable<CellRef> cells, IReadOnlyCollection<string> sides, string style, string colour)
+    {
+        foreach (var reference in cells)
+        {
+            var cell = EnsureCell(reference);
+            int current = Xml.Int(cell.Attribute("s"), 0);
+            cell.SetAttributeValue("s", _book.Styles.WithBorder(current, sides, style, colour));
+        }
+        _dirty = true;
+    }
+
+    /// <summary>Which sides of this cell have a line.</summary>
+    public IReadOnlyList<(string Side, string Style)> BorderAt(CellRef reference) =>
+        _book.Styles.BorderAt(Xml.Int(FindCell(reference)?.Attribute("s"), 0));
+
     // ---------- how tall a row is, and what stays on screen ----------
 
     /// <summary>
