@@ -397,14 +397,25 @@ public partial class MainWindow : Window
 
         var parts = _active.File.Parts();
         var kept = parts.Where(p => p.Role == PartRole.Preserved).ToList();
-        RailList.ItemsSource = kept;
+        var rows = Preserved.Summarise(parts);
+        var (bookkeeping, bookkeepingBytes) = Preserved.Bookkeeping(parts);
+
+        RailList.ItemsSource = rows;
         KeepBtn.Content = $"Preserved  {kept.Count}";
-        RailFoot.Text = _active.File.Kind switch
+
+        // One line for the plumbing, rather than a row each for things nobody has ever wanted to look at.
+        string plumbing = bookkeeping == 0 ? ""
+            : $"Plus {bookkeeping} parts of bookkeeping the file needs to be a file: what points at what, which part is which, the settings and theme it was made with. Kept, not listed.\n\n";
+
+        RailFoot.Text = plumbing + _active.File.Kind switch
         {
             FileKind.Spreadsheet => "Change a cell and the totals that read it lose their stored value until Excel works them out again. Every other total keeps its number.",
             FileKind.Document => "Tracked changes, comments, headers and footers stay in the file. Plain shows the text of the body.",
             _ => "Shapes Plain cannot draw are held in place. Editing a title never moves them.",
         };
+
+        if (rows.Count == 0 && bookkeeping > 0)
+            RailFoot.Text = $"Everything in this file is something Plain shows, apart from {bookkeeping} parts of bookkeeping. Nothing is being held back.";
 
         int shown = parts.Count(p => p.Role == PartRole.Shown);
         StatusPromise.Text = _message.Length > 0

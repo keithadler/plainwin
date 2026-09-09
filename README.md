@@ -42,7 +42,9 @@ Change one cell and only the parts that hold that cell are rewritten. The status
 
 ## What it keeps but does not show
 
-Charts, pivot tables, macros, SmartArt, pictures, embedded objects, tracked changes, comments, headers, footers, slide layouts, masters, themes, and anything else. Each one is named in the panel on the right with its size, and each one is in the saved file unchanged.
+Charts, pivot tables, macros, SmartArt, pictures, embedded objects, tracked changes, comments, headers, footers, slide layouts, masters, themes, and anything else. Every one of them is in the saved file unchanged.
+
+The panel on the right tells you what they are, in as few lines as it honestly can. Several of a kind become one line, so a document with eighteen embedded fonts says *18 embedded fonts, 10.4 MB* rather than filling the panel with eighteen rows you cannot tell apart. Parts that are pure bookkeeping, the ones that make a file a file rather than anything a person put in it, are counted in a single closing line instead of listed. Across a set of real business documents that takes the panel from 847 rows to 86.
 
 ![Plain showing a document](docs/screenshots/doc.png)
 

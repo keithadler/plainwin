@@ -135,7 +135,77 @@ public static class OpcSuite
         finally { try { File.Delete(scratch); } catch { } }
 
         NewFiles(s);
+        Summaries(s);
         return s;
+    }
+
+    /// <summary>The panel has to read like a sentence about the file, not like a directory listing of it.</summary>
+    private static void Summaries(Suite s)
+    {
+        s.Equal("a chart pluralises", "charts", Preserved.Many("A chart"));
+        s.Equal("an embedded font pluralises", "embedded fonts", Preserved.Many("An embedded font"));
+        s.Equal("a page footer pluralises", "page footers", Preserved.Many("A page footer"));
+        s.Equal("a query pluralises properly", "queries", Preserved.Many("A query"));
+        s.Equal("a box pluralises properly", "boxes", Preserved.Many("A box"));
+        s.Equal("something already plural is left alone", "Comments", Preserved.Many("Comments"));
+        s.Equal("a mass noun is left alone", "Macros", Preserved.Many("Macros"));
+
+        var notes = new[]
+        {
+            new PartNote("word/fonts/font1.odttf", PartRole.Preserved, "An embedded font", 4000, PartClass.Content),
+            new PartNote("word/fonts/font2.odttf", PartRole.Preserved, "An embedded font", 6000, PartClass.Content),
+            new PartNote("word/header1.xml", PartRole.Preserved, "A page header", 500, PartClass.Content),
+            new PartNote("_rels/.rels", PartRole.Preserved, "Links between parts", 300, PartClass.Bookkeeping),
+            new PartNote("[Content_Types].xml", PartRole.Preserved, "The list of what each part is", 900, PartClass.Bookkeeping),
+            new PartNote("word/document.xml", PartRole.Shown, "The document text", 7000, PartClass.Content),
+        };
+
+        var rows = Preserved.Summarise(notes);
+        s.Equal("only what is worth reading gets a row", 2, rows.Count);
+        s.Equal("the biggest thing comes first", "2 embedded fonts", rows[0].Title);
+        s.Equal("and carries both their sizes", 10000, rows[0].Bytes);
+        s.Check("a row for several things names none of them", rows[0].Name is null);
+        s.Equal("one of a thing reads as itself", "A page header", rows[1].Title);
+        s.Equal("and names the part", "word/header1.xml", rows[1].Name);
+        s.Check("what Plain shows never appears in the list", rows.All(r => !r.What.Contains("document text")));
+
+        var (count, bytes) = Preserved.Bookkeeping(notes);
+        s.Equal("bookkeeping is counted, not listed", 2, count);
+        s.Equal("with its size", 1200, bytes);
+
+        // The classification itself.
+        s.Equal("relationships are bookkeeping", PartClass.Bookkeeping, Preserved.Classify("word/_rels/document.xml.rels"));
+        s.Equal("content types are bookkeeping", PartClass.Bookkeeping, Preserved.Classify("[Content_Types].xml"));
+        s.Equal("document properties are bookkeeping", PartClass.Bookkeeping, Preserved.Classify("docProps/app.xml"));
+        s.Equal("a theme is bookkeeping", PartClass.Bookkeeping, Preserved.Classify("ppt/theme/theme1.xml"));
+        s.Equal("a chart is not", PartClass.Content, Preserved.Classify("xl/charts/chart1.xml"));
+        s.Equal("a header is not", PartClass.Content, Preserved.Classify("word/header1.xml"));
+        s.Equal("macros are not", PartClass.Content, Preserved.Classify("word/vbaProject.bin"));
+        s.Equal("an embedded font is not", PartClass.Content, Preserved.Classify("word/fonts/font1.odttf"));
+        s.Equal("an embedded font is named", "An embedded font", Preserved.What("word/fonts/font1.odttf"));
+        s.Equal("a folder marker is bookkeeping", PartClass.Bookkeeping, Preserved.Classify("word/_rels/"));
+        // Every phrase Plain can produce must read properly when there are several of them.
+        var phrases = new (string Part, string Several)[]
+        {
+            ("xl/charts/chart1.xml", "charts"),
+            ("xl/pivotCache/pivotCacheDefinition1.xml", "Pivot table data"),
+            ("xl/tables/table1.xml", "named tables"),
+            ("xl/queryTables/queryTable1.xml", "external data queries"),
+            ("word/header1.xml", "page headers"),
+            ("word/footer1.xml", "page footers"),
+            ("word/fonts/font1.odttf", "embedded fonts"),
+            ("word/media/image1.png", "pictures"),
+            ("word/embeddings/oleObject1.bin", "embedded files"),
+            ("word/vbaProject.bin", "Macros"),
+            ("ppt/slideLayouts/slideLayout1.xml", "slide layouts"),
+            ("ppt/slideMasters/slideMaster1.xml", "slide masters"),
+            ("ppt/diagrams/data1.xml", "SmartArt diagrams"),
+            ("ppt/notesSlides/notesSlide1.xml", "Speaker notes"),
+            ("word/comments.xml", "Comments"),
+            ("something/nobody/knows.bin", "unrecognised parts"),
+        };
+        foreach (var (part, several) in phrases)
+            s.Equal($"several of \"{Preserved.What(part)}\" reads right", several, Preserved.Many(Preserved.What(part)));
     }
 
     /// <summary>
