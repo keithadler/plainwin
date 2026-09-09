@@ -6,6 +6,8 @@ It reads the file you open and writes the file you save.
 
 It does keep one small settings file, because people asked it to: a list of the last ten files you opened, how big you set the text, and whether you want the preserved panel showing. It is plain JSON at `%LocalAppData%\Plain for Windows\settings.json`, it holds nothing about you beyond those file paths, and deleting it costs you nothing but the list. Earlier versions kept nothing at all; if you would rather it stayed that way, delete the file and it will not be missed.
 
+If keeping unsaved work is left on, a copy of anything you have changed but not saved is written into a `recovery` folder beside that settings file, every half minute, and offered back the next time Plain starts. Those copies are your documents, so they are as private as the originals and they live on your machine only. Saving the real file deletes its copy, and the setting can be turned off in Reading.
+
 The one thing it writes, other than the file you asked it to save, is a temporary file next to your document while saving, named after it with `.plain-tmp` on the end. That file is renamed into place the moment it is complete, so a save that is interrupted leaves your original untouched rather than half-written.
 
 `plain.exe`, the console twin, behaves the same way.

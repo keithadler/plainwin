@@ -1,31 +1,21 @@
 # Changelog
 
-## 1.0.0, unreleased
+## 1.0.0, 2026-09-08
 
-First working version.
+First public version.
 
-The package layer holds every part of a Word, Excel or PowerPoint file as the exact bytes it occupies, compression included, so a part nobody edited is written back byte for byte and an unchanged save returns the identical file. Verified against a corpus of real Office documents.
+**The promise.** Plain opens a Word, Excel or PowerPoint file as the package of parts it really is, holds every part as the exact bytes it occupies, and writes those same bytes back for every part it did not edit. Open a file, save it without changing anything, and you get the same file back byte for byte. Checked on every build against real documents, and checkable yourself with `plain roundtrip`.
 
-Excel: cells, text, formulas, shared strings, number formats and the column widths the file stores. Plain does not evaluate formulas, so instead it reads which cells each formula depends on and clears the cached value of exactly those formulas an edit made untrue, following the chain across sheets. Every other total keeps its number. Word: the body text, with headings, lists and tables. PowerPoint: the text on each slide.
+**Spreadsheets.** Cells, text and formulas across every sheet, with the column widths and number formats the file stores. Insert and delete rows and columns, with every formula in the workbook rewritten so it still means what it meant; one that pointed only at a deleted row becomes `#REF!` rather than a quietly wrong number. Totals are worked out as you go, covering arithmetic, comparisons, text, lookups, conditional sums and dates, and refusing anything not fully understood. Number formats, bold and italic, fill down, block select, copy and paste as tab separated text.
 
-The window: one command row of six controls, a formula bar for spreadsheets, a panel listing every part the app is preserving with its size and what it is, and a status bar that counts the parts on every save. Follows the Windows light or dark setting. Multi-step undo. Drag a file in to open it.
+**Documents.** The body text with headings and tables. Bold, italic, heading levels, bullets and numbered lists, using definitions the document already carries. Word count.
 
-Files written with the strict ISO namespaces, which Excel offers as "Strict Open XML", are read as well as the usual transitional ones, and an edit to one keeps it strict. A workbook whose sheets Plain cannot find, or a document whose text it cannot find, is now refused with a sentence instead of opening to an empty window.
+**Presentations.** The text on each slide, from a rail of slides.
 
-A second round of user panels, ten more kinds of person, and the ten things they most needed: PDF export, tracked changes one at a time, unsaved work kept when the machine stops, many changes in one console pass, the pictures inside a file, bullets and numbered lists, CSV in and out, the lookup and conditional and date functions, reading settings for the font and paper and spacing, and a word count.
+**All three.** New empty files, built part by part from what each format requires. Find and replace across the whole file. Save, Save a copy, Print, Save as PDF. Comments and tracked changes read, accepted or turned down one at a time. Document properties viewed, set and stripped. The pictures inside a file, shown and saveable. Multi-step undo that survives a save. Unsaved work kept every half minute against a machine that stops. Reading settings for the typeface, paper colour, line spacing and line width. Bigger text, and F6 to move between the parts of the window.
 
-The preserved panel says what is in the file rather than listing its innards: several parts of a kind are one line with a count, and bookkeeping is a single closing sentence. On a set of 39 real documents that is 847 rows down to 86, and the busiest file goes from 44 rows to 5.
+**Console twin.** `plain.exe` does all of it for scripts, including a batch mode that applies many changes in one pass.
 
-New makes an empty workbook, document or deck, built part by part from the smallest set the format requires. Two blank files of a kind are the same bytes, which is what lets a test check them. LibreOffice opens all three and reads back what Plain writes into them, including a formula it then computes.
+**Robustness.** Both the transitional and the strict ISO ways of writing a file are read. A damaged file gets a sentence, not a crash: the readers are fuzzed against truncated, zeroed, overwritten and bit-flipped copies. A save writes beside your file and then replaces its contents, so its permissions and creation date survive and an interrupted save leaves the original whole. A file changed by something else while Plain had it open is noticed and asked about.
 
-Blocks of cells can be selected with Shift, then copied, cut and pasted as tab separated text, the format every spreadsheet uses on the clipboard. A paste is one step of undo however many cells it fills.
-
-Every sheet of a workbook is reachable from a strip along the bottom, and each sheet keeps its own grid and selection once you have visited it. Find (Ctrl+F) runs over the whole file and, in a spreadsheet, over the formulas as well as the values. Save a copy writes the file under a new name and leaves the original alone.
-
-`plain.exe`, the console twin: `info`, `parts`, `text`, `cells`, `get`, `set`, `roundtrip`, `selftest`.
-
-A damaged file produces a message rather than a crash: the readers are fuzzed against truncated, zeroed, overwritten and bit-flipped copies of every fixture, and no part may unpack to more than half a gigabyte. Saving replaces the file's contents rather than swapping a new file into its name, so its permissions and creation date survive; a file changed by something else while Plain had it open is noticed and asked about; a read-only file is refused with an explanation.
-
-Rows are indexed rather than scanned, so a sheet of twenty thousand rows draws any screen in under a millisecond and searches in 81 ms, where both used to walk the whole sheet for every cell.
-
-Set `PLAIN_SOFTWARE_RENDER=1` if the window comes up blank on a virtual machine or a remote desktop.
+641 checks in the engine, 36 end to end, 21 driving the real window, on Windows on ARM and on x64.

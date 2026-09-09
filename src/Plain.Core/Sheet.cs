@@ -77,8 +77,19 @@ public sealed class Workbook
         if (_strings is not null) return;
         _strings = new List<string>();
         if (!_pkg.Has("xl/sharedStrings.xml")) return;
-        _sst = Xml.Parse(_pkg.Read("xl/sharedStrings.xml"));
-        foreach (var si in _sst.Root!.Elements(D.Sheet + "si")) _strings.Add(SiText(si));
+        try
+        {
+            var parsed = Xml.Parse(_pkg.Read("xl/sharedStrings.xml"));
+            if (parsed.Root is null) return;      // an empty part: the workbook has no usable table
+            _sst = parsed;
+            foreach (var si in _sst.Root.Elements(D.Sheet + "si")) _strings.Add(SiText(si));
+        }
+        catch (OpcPackage.PackageException)
+        {
+            // A damaged table is one the workbook cannot use either. The cells that pointed into it will read as
+            // empty, and anything typed from here goes into the cell itself rather than into a table that is broken.
+            _sst = null;
+        }
     }
 
     private string SiText(XElement si)
@@ -90,12 +101,18 @@ public sealed class Workbook
     }
 
     /// <summary>The index for a piece of text, appending it to the shared table when it is new.</summary>
+    /// <summary>Does this workbook keep a shared table of text? Some do not, and text then goes in the cell itself.</summary>
+    internal bool HasSharedStrings
+    {
+        get { LoadStrings(); return _sst is not null; }
+    }
+
     internal int InternString(string text)
     {
         LoadStrings();
         int existing = _strings!.IndexOf(text);
         if (existing >= 0) return existing;
-        if (_sst is null) throw new OpcPackage.PackageException("This workbook has no shared string table, so Plain cannot add text to it yet.");
+        if (_sst is null) throw new OpcPackage.PackageException("This workbook has no shared string table.");
 
         var si = new XElement(D.Sheet + "si", new XElement(D.Sheet + "t", text));
         // Text with leading or trailing spaces needs the xml:space hint or Excel trims it.
@@ -560,10 +577,21 @@ public sealed class Sheet
             c.Add(new XElement(D.Sheet + "v", number.ToString("R", CultureInfo.InvariantCulture)));
             _book.RequestFullRecalculation();
         }
-        else
+        else if (_book.HasSharedStrings)
         {
             c.SetAttributeValue("t", "s");
             c.Add(new XElement(D.Sheet + "v", _book.InternString(typed).ToString(CultureInfo.InvariantCulture)));
+            _book.RequestFullRecalculation();
+        }
+        else
+        {
+            // Some workbooks carry no shared table of text. Rather than add a part to somebody's file, which Plain
+            // never does, the words go straight into the cell. Excel reads that just as happily.
+            c.SetAttributeValue("t", "inlineStr");
+            var run = new XElement(D.Sheet + "t", typed);
+            if (typed.Length > 0 && (char.IsWhiteSpace(typed[0]) || char.IsWhiteSpace(typed[^1])))
+                run.SetAttributeValue(XNamespace.Xml + "space", "preserve");
+            c.Add(new XElement(D.Sheet + "is", run));
             _book.RequestFullRecalculation();
         }
         _dirty = true;

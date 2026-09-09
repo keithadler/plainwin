@@ -5,6 +5,15 @@
 param([string]$Root = "C:\Plain")
 
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes, System.Windows.Forms
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public class Fore {
+  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+  [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int c);
+  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+}
+"@
 $ErrorActionPreference = "Continue"
 $exe   = Join-Path $Root "Plain for Windows.exe"
 $cli   = Join-Path $Root "plain.exe"
@@ -43,6 +52,22 @@ function SetText($element, $text) {
   Start-Sleep -Milliseconds 400
 }
 
+# Keystrokes go to whatever is in front, so nothing may be typed until the window really is.
+function Front($process) {
+  for ($i = 0; $i -lt 30; $i++) {
+    $process.Refresh()
+    $h = $process.MainWindowHandle
+    if ($h -ne 0) {
+      [Fore]::ShowWindow($h, 9) | Out-Null
+      [Fore]::SetForegroundWindow($h) | Out-Null
+      Start-Sleep -Milliseconds 400
+      if ([Fore]::GetForegroundWindow() -eq $h) { Start-Sleep -Milliseconds 500; return $true }
+    }
+    Start-Sleep -Milliseconds 400
+  }
+  return $false
+}
+
 function Button($window, $name) {
   $cond = New-Object System.Windows.Automation.PropertyCondition(
     [System.Windows.Automation.AutomationElement]::NameProperty, $name)
@@ -73,6 +98,7 @@ $p = Start-Process $exe -ArgumentList "`"$work`"" -PassThru
 $w = Window $p
 Note ($null -ne $w) "the window opens"
 if (-not $w) { $lines | Set-Content $log; exit 1 }
+Note (Front $p) "and comes to the front, so it can be typed into" 
 
 Note ($w.Current.Name -like "*ui-work.xlsx*") "the title names the file" $w.Current.Name
 

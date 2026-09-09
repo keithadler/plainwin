@@ -2,87 +2,74 @@
 
 Opens Word, Excel and PowerPoint files, edits the basics, and never damages what it doesn't understand.
 
-One window. No ribbon, no account, no cloud, no assistant. Open a file, change the words or the numbers, save. Everything in the file that Plain cannot draw is listed on the right and written back exactly as it was found.
+**[Download Plain-for-Windows-1.0.0-x64.exe](https://github.com/keithadler/plainwin/releases/latest/download/Plain-for-Windows-1.0.0-x64.exe)** for ordinary Intel and AMD PCs, or **[Plain-for-Windows-1.0.0-arm64.exe](https://github.com/keithadler/plainwin/releases/latest/download/Plain-for-Windows-1.0.0-arm64.exe)** for Windows on ARM.
+
+Windows 10 or 11. One exe, no installer, no runtime to install, no administrator. Put it anywhere and double-click. Windows will warn you about an unknown publisher: choose **More info**, then **Run anyway**. It is not signed, because a signing certificate costs money this does not make.
+
+The console twin, for scripts: [plain-1.0.0-x64.exe](https://github.com/keithadler/plainwin/releases/latest/download/plain-1.0.0-x64.exe) and [plain-1.0.0-arm64.exe](https://github.com/keithadler/plainwin/releases/latest/download/plain-1.0.0-arm64.exe).
 
 ![Plain showing a workbook](docs/screenshots/book.png)
 
-## Download
+## Why this exists
 
-**[Plain-for-Windows-1.0.0-x64.exe](https://github.com/keithadler/plainwin/releases/latest/download/Plain-for-Windows-1.0.0-x64.exe)** for ordinary Intel and AMD PCs, or **[Plain-for-Windows-1.0.0-arm64.exe](https://github.com/keithadler/plainwin/releases/latest/download/Plain-for-Windows-1.0.0-arm64.exe)** for Windows on ARM. Windows 10 or 11. One exe, no installer, no runtime to install; put it anywhere and double-click.
+Every other editor that opens a `.docx` reads it into its own idea of a document and writes that idea back out. Whatever the idea has no room for is quietly gone: the chart, the macro, the tracked changes, the header nobody looked at. You open a file to change three words, you save, and you have handed back something subtly different from what you were sent.
 
-The console twin for scripts: [plain-1.0.0-x64.exe](https://github.com/keithadler/plainwin/releases/latest/download/plain-1.0.0-x64.exe) and [plain-1.0.0-arm64.exe](https://github.com/keithadler/plainwin/releases/latest/download/plain-1.0.0-arm64.exe).
+Plain does the opposite. It opens the file as the package of parts it really is, holds every part as the exact bytes it occupies, and writes those same bytes back for every part it did not edit.
 
-## The promise, and how it is checked
+So the promise is not "it looks the same". It is this:
 
-Every other editor that opens a `.docx` reads it into its own model and writes that model back out. Whatever the model has no place for is gone. Plain does the opposite: it opens the file as the ZIP package it really is, holds every part as the exact bytes it occupies, and writes those same bytes back for every part nobody edited.
+> **Open a file, save it without changing anything, and you get the same file back, byte for byte.**
 
-So the promise is not "it looks the same". It is **open a file, save it without changing anything, and you get the same file back, byte for byte**. That is a claim a test can check, and it is checked, against real Word, Excel and PowerPoint documents:
+That is a claim a test can check rather than a claim a README can make, and it is checked on every build against real Word, Excel and PowerPoint documents. You can check it yourself:
 
-```bash
+```
 plain roundtrip *.docx *.xlsx *.pptx
 ```
 
-Change one cell and only the parts that hold that cell are rewritten. The status bar counts it for you on every save: *10 parts read, 4 shown, 6 kept byte for byte*.
+Change one cell and only the parts holding that cell are rewritten. The status bar counts it on every save: *10 parts read, 4 shown, 6 kept byte for byte*.
 
-## Making one
+## What it does
 
-**New** writes an empty workbook, document or deck: the name you give it picks which. These are built part by part from what the format actually requires, so they carry no other program's name in their properties, no leftover styles and no theme nobody chose. A file Plain makes is one it can open, edit and hand back unchanged, and the checks prove that round trip rather than assuming it. LibreOffice opens all three and reads back what Plain put in them.
+**Spreadsheets.** Cells, text and formulas across every sheet. Insert and delete rows and columns, and every formula in the workbook is rewritten so it still means what it meant. Totals are worked out as you go, covering the common functions including lookups, conditional sums and dates, and refusing anything it does not fully understand rather than guessing. Number formats, bold, fill down, copy and paste as tab separated text.
 
-## What it edits
+**Documents.** The body text, with headings and tables shown as headings and tables. Bold, italic, heading levels, bullets and numbered lists. Word count.
 
-- **Excel**: cell values, text and formulas, across every sheet in the workbook, with the sheets along the bottom where Excel puts them. Column widths and number formats come from the file, so the sheet looks like the one whoever made it laid out.
-- **Word**: the text of the body, with headings and tables shown as headings and tables.
-- **PowerPoint**: the text on each slide, picked from a rail of slides.
+**Presentations.** The text on each slide, picked from a rail of slides.
 
-**Copy and paste** a block of cells with Shift to select and the usual Ctrl+C, X and V. Cells travel as tab separated text, so a block copied out of Plain pastes into Excel and the other way round; a formula copies as its formula. However many cells a paste fills, it is one step of undo.
-
-**Find and replace** with Ctrl+F and Ctrl+H, across the whole file: every sheet of a workbook, every block of a document, every slide of a deck. A spreadsheet search looks at the formula behind a cell as well as what it shows, so searching for `SUM` finds the cells that total something. Replace all is one step of undo however many places it changed.
-
-**Rows and columns** go in and come out from the right-click menu on the grid. Every formula in the workbook is rewritten so it still means what it meant: a total that read `B2:B4` reads `B2:B5` after a row goes in, and one that pointed only at a deleted row becomes `#REF!` rather than a quietly wrong number.
-
-**Totals are worked out** as you go. Plain covers arithmetic, comparisons, text joining and about thirty of the common functions, and refuses everything else rather than guessing, so a cell it does not understand shows nothing rather than something wrong. Excel is still asked to recalculate when it opens the file.
-
-**Comments and tracked changes** can be read: who wrote them, when, and what they said. Tracked changes can be settled and comments removed, which is what a document needs before it goes to somebody who should not see the argument that produced it.
-
-**Document properties** can be seen, set and stripped. Stripping clears what names a person or an organisation, and leaves the dates.
-
-**Print** puts what Plain shows on paper. It prints the view rather than claiming to reproduce Word's pagination.
-
-**Fill down** with Ctrl+D copies the top of a selection through the rest of it, moving formulas the way Excel does.
-
-**Bold and italic** with Ctrl+B and Ctrl+I, on the line you are typing in or on the cells you have picked out, and a picker that makes a line a heading. Plain only offers heading levels the document already has, because a heading style it invented would not match the rest of somebody's document. It does not do bullets.
-
-**Bigger text** with Ctrl+plus, and back with Ctrl+0. **F6** moves between the parts of the window, so the keyboard never gets stuck in the grid. The last ten files you opened are offered when nothing is.
-
-**Save a copy** writes the file, with your changes, under a new name and leaves the original alone. The copy is a whole file, not a patch: everything Plain preserved is in it byte for byte.
-
-## What it keeps but does not show
-
-Charts, pivot tables, macros, SmartArt, pictures, embedded objects, tracked changes, comments, headers, footers, slide layouts, masters, themes, and anything else. Every one of them is in the saved file unchanged.
-
-The panel on the right tells you what they are, in as few lines as it honestly can. Several of a kind become one line, so a document with eighteen embedded fonts says *18 embedded fonts, 10.4 MB* rather than filling the panel with eighteen rows you cannot tell apart. Parts that are pure bookkeeping, the ones that make a file a file rather than anything a person put in it, are counted in a single closing line instead of listed. Across a set of real business documents that takes the panel from 847 rows to 86.
+**All three.** Find and replace across the whole file. Save a copy. Print. Save as PDF. Comments and tracked changes, read, accepted or turned down one at a time. Document properties, viewable and strippable. The pictures inside the file, shown so you can see what you are sending. Multi-step undo. Unsaved work kept every half minute in case the machine stops.
 
 ![Plain showing a document](docs/screenshots/doc.png)
 
-## When things go wrong
+## What it keeps but does not show
 
-- **Both ways of writing a file are read.** Office can save the same document two ways: the transitional shape nearly everything uses, and the strict ISO shape that Excel offers as "Strict Open XML Spreadsheet". They spell every element in a different namespace. Plain reads either and writes back the one it found. A file it cannot make sense of is refused with a sentence rather than opened to an empty window.
-- **A damaged file gets a sentence, not a crash.** The readers are fuzzed against truncated, zeroed, overwritten and bit-flipped copies of every fixture; whatever comes back is either a working file or a clear refusal. No part is allowed to unpack to more than half a gigabyte, so a hostile file cannot exhaust the machine.
-- **A save cannot leave you with half a file.** The new contents go to a temporary file beside yours and only then take its place.
-- **A save keeps your file being your file.** Where the file already exists Plain replaces its contents rather than swapping in a new file with the old name, so who may read it, when it was created and where it sits all survive. A new file wearing the old name would quietly take whatever permissions the folder hands out.
-- **If something else changed the file while you had it open**, Plain says so and asks before writing over that.
-- **A read-only file** is refused with an explanation and a pointer to Save a copy, rather than a failure part-way through.
+Charts, pivot tables, macros, SmartArt, embedded objects, slide layouts, masters, themes, headers, footers, footnotes, and anything else. Every one is in the saved file unchanged.
+
+The panel on the right names them, in as few lines as it honestly can. Several of a kind become one line, so a document with eighteen embedded fonts says *18 embedded fonts, 10.4 MB* rather than eighteen rows you cannot tell apart. Across a set of real business documents that takes the panel from 847 rows to 86.
 
 ## Honest limits
 
-- **No page layout.** Matching Word's pagination needs Word's own fonts and line breaking. Plain shows a document as one scrolling column and says so in the status bar. If you need to see page breaks, you need Word.
-- **No formula evaluation.** Plain does not work out what `=SUM(B2:B4)` comes to. Instead it reads which cells each formula depends on, and when you change a cell it clears the cached value of every formula that reads it, and every formula that reads *those*, across all the sheets. Those cells show the formula until Excel or LibreOffice next opens the file and works them out. Every other total on the sheet keeps the number it had. So changing one label in a budget does not empty the budget of its numbers, and no number on screen is one that quietly stopped being true.
-- **Mixed formatting inside one paragraph collapses when you retype it.** A paragraph with one bold word in the middle becomes one run in the first run's formatting. Plain says so in the status bar when it happens. Paragraphs you do not touch are untouched.
-- **No drawing.** Shapes, pictures and diagrams are kept, never rendered.
-- **No ZIP64.** A package using ZIP64 records is opened and re-saved unchanged, but not edited.
-- **Not a replacement for Office.** It is the thing to reach for when you need to change three words in a contract, or one number in a forecast, without a four gigabyte install.
+- **No page layout.** Matching Word's pagination needs Word's own fonts and line breaking. Plain shows a document as one scrolling column and says so. Printing and PDF give you that view, not Word's pages.
+- **It does not evaluate every formula.** It covers arithmetic, comparisons, text, lookups, conditional sums and dates. Anything else shows nothing rather than something wrong, and Excel recalculates the file when it opens it.
+- **No fonts, colours or alignment.** Bold, italic, heading level and lists, and no more.
+- **It does not draw shapes or place pictures.** They are kept, listed, and can be looked at.
+- **Retyping a paragraph flattens mixed formatting inside it.** Plain says so when it happens.
+- **English only, left to right.** There is no right-to-left support in the editing surface.
+- **It has never been opened in Microsoft Office.** Everything here is checked against LibreOffice, against macOS's PDF engine, and against Plain's own byte-for-byte round trip. Those are good proxies and they have caught real bugs, but Office is stricter in places and nobody has yet confirmed this on a machine that has it.
+- **Not a replacement for Office.** It is what to reach for when you need to change three words in a contract without a four gigabyte install.
 
-![Plain showing a deck](docs/screenshots/deck.png)
+## How it is checked
+
+| | |
+|---|---|
+| Checks in the engine | 641 |
+| End to end through the console | 36 |
+| Driving the real window with real keystrokes | 21 |
+| Real business documents round tripped byte for byte | 39 of 39 |
+| Real documents edited, saved, and reopened elsewhere | 39 of 39 |
+| Formula results agreeing with LibreOffice | 52 of 53 |
+| Damaged-file mutations survived | 90,000 |
+
+Everything runs on Windows on ARM and on x64. `PLAIN_CORPUS=<folder>` points the checks at a folder of your own documents and demands a byte-identical round trip on every one.
 
 ## Command line
 
@@ -91,65 +78,44 @@ The panel on the right tells you what they are, in as few lines as it honestly c
 ```
 plain info <file>                what the file is, and what Plain keeps untouched
 plain parts <file> [--json]      every part, and whether Plain shows it or preserves it
-plain text <file>                the text, as plain text
+plain text <file> [--numbered]   the text, as plain text
 plain cells <file> [sheet]       every filled cell, as reference<tab>value
 plain get <file> <ref>           one cell, or one block by number
-plain set <file> <ref> <value>   change one cell or block, then save in place
-plain roundtrip <file>...        prove a save changes nothing: byte compares the result
-plain selftest                   run the built-in checks
+plain set <file> <ref> <value>   change one cell or block, then save
+plain replace <file> <find> <with> [--case] [--whole] [--dry-run]
+plain row <file> insert|delete <n>        put a row in or take one out
+plain column <file> insert|delete <ref>   the same for a column
+plain new <file.xlsx|.docx|.pptx>         make a new empty file
+plain pdf <file> [out.pdf]                write it out as a PDF
+plain csv <file> [sheet] [--formatted]    a sheet as comma separated values
+plain import <file> <csv> [at]            read a csv into a sheet
+plain count <file>                        words, characters, paragraphs
+plain images <file> [--save <dir>]        the pictures inside it
+plain changes <file> [--accept N|--reject N|--accept-all|--reject-all]
+plain comments <file> [--remove N|--remove-all]
+plain props <file> [--set Name=value] [--strip]
+plain apply <file> --script <s>           many changes in one pass
+plain roundtrip <file>...                 prove a save changes nothing
+plain selftest
 ```
 
 Exit codes: 0 fine, 1 something to look at, 2 problem, 64 usage.
 
-## Speed
+## Privacy
 
-Measured on a Windows 11 ARM64 virtual machine, on a sheet of 20,000 rows with a formula in every one:
+There is no network code in Plain at all. No account, no telemetry, no update check, nothing to turn off. See [PRIVACY.md](PRIVACY.md).
 
-| | |
-|---|---|
-| Open the file | 20 ms |
-| Draw a screen anywhere in it | under 1 ms |
-| Find text across the whole sheet | 81 ms |
-| Save, working out which totals went stale | 186 ms |
+## Building it yourself
 
-The checks include a guard against the code going quadratic again, because it was: reading a cell used to scan every row, so the bottom of a large sheet took 286 ms a screen and a search took twenty seconds.
+```
+dotnet run --project src/Plain.Selftest      # the checks
+scripts/publish.sh all                       # the four exes into dist/
+```
 
-## Paper and pipelines
-
-**PDF** with the PDF button or `plain pdf`. Written here rather than pulled in, using the fonts every reader already has, so nothing is embedded and there is no dependency. It writes the Latin alphabet and says so when a character falls outside it.
-
-**CSV** in and out: `plain csv` writes a sheet, `plain import` reads one in. Numbers come out as numbers rather than as they are dressed on screen, because a comma inside a comma separated file is two fields waiting to happen. A value beginning with `=` arrives as text, so a CSV can never put a formula into your workbook.
-
-**Many changes in one go**: `plain apply <file> --script changes.txt` runs a list of set, replace, row, column and props lines against one file in one pass, instead of one process per cell.
-
-**Word count** sits in the status bar and in `plain count`.
-
-**The pictures inside a file** can be looked at and saved out. Plain never draws them into the document, but somebody about to send a file should be able to see what is in it.
-
-**Tracked changes one at a time**: accept or turn down each one, or all of them, and remove a single comment rather than all of them. Reviewing mark-up is half saying no.
-
-**Reading** settings: choose the typeface, tint the paper, set the line spacing and how wide a line may get. They change nothing in your files, and nobody has to open them.
-
-**Unsaved work is kept** every half minute and offered back if the machine stops. It can be turned off.
+`Plain.Core` is a dependency-free .NET 9 library and builds anywhere. The window is WPF and needs Windows.
 
 ## Help
 
-[docs/Help.html](docs/Help.html) covers the lot: what it edits, what it keeps, the keyboard, and the honest limits.
-
-## Privacy
-
-Nothing leaves your PC. There is no account, no telemetry, no update check, no network code of any kind. See [PRIVACY.md](PRIVACY.md).
-
-## Building
-
-```bash
-dotnet build src/Plain.Core/Plain.Core.csproj      # the engine, pure .NET, builds anywhere
-dotnet run --project src/Plain.Selftest            # the checks
-scripts/publish.sh all                             # the four exes into dist/
-```
-
-`plain selftest` works from a downloaded exe on its own: the checks that need the repository's test files say they were skipped rather than failing, and everything else runs.
-
-Two environment variables go deeper. `PLAIN_CORPUS=/path/to/real/office/files` points the self-test at a folder of your own documents and demands a byte-identical round trip on every one. `PLAIN_FUZZ=25000` sets how many damaged copies of each test file to throw at the readers.
+[docs/Help.html](docs/Help.html) covers what it edits, what it keeps, the keyboard and the honest limits.
 
 Free, MIT, built by Keith Adler. More at [keithadler.github.io](https://keithadler.github.io/).

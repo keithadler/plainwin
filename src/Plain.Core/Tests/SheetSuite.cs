@@ -108,7 +108,43 @@ public static class SheetSuite
 
         Staleness(s);
         Formatting(s);
+        NoSharedTable(s);
         return s;
+    }
+
+    /// <summary>
+    /// A workbook with no shared table of text must still take text. Three of thirty-nine real workbooks had none,
+    /// and Plain refused to type into any of them; the words go straight into the cell instead, which adds no part.
+    /// </summary>
+    private static void NoSharedTable(Suite s)
+    {
+        var work = Fixtures.Copy("sheet.xlsx");
+        try
+        {
+            // Take the shared table out of the package to make a workbook of the awkward kind.
+            var pkg = OpcPackage.Open(work);
+            var contentTypes = pkg.ReadText("[Content_Types].xml")
+                .Replace("<Override PartName=\"/xl/sharedStrings.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml\"/>", "");
+            pkg.WriteText("[Content_Types].xml", contentTypes);
+            pkg.WriteText("xl/sharedStrings.xml", "");     // present but empty: Plain must treat it as absent
+            var stripped = OpcPackage.Read(pkg.ToBytes());
+
+            var book = new Workbook(stripped);
+            var sheet = book.Sheets[0];
+            s.Check("a workbook with no usable shared table says so", !book.HasSharedStrings);
+
+            sheet.Set("A9", "typed without a shared table");
+            sheet.Set("B9", "1234");
+            book.Flush();
+            var saved = OpcPackage.Read(stripped.ToBytes());
+            var again = new Workbook(saved).Sheets[0];
+            s.Equal("text lands in the cell itself", "typed without a shared table", again.Read("A9").Display);
+            s.Equal("and a number is still a number", "1234", again.Read("B9").Raw);
+            s.Check("the text is written inline",
+                    saved.ReadText(again.PartName).Contains("inlineStr"),
+                    "text was not written into the cell");
+        }
+        finally { try { File.Delete(work); } catch { } }
     }
 
     /// <summary>Changing how a cell shows its number must not change the number, or anything else about the cell.</summary>

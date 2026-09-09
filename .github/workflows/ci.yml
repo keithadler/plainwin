@@ -15,7 +15,7 @@ jobs:
         with:
           dotnet-version: '9.0.x'
 
-      - name: Build the engine and the window
+      - name: Build the engine, the window and the console twin
         run: |
           dotnet build src/Plain.Core/Plain.Core.csproj -c Release --nologo
           dotnet build src/Plain/Plain.csproj -c Release --nologo
@@ -24,11 +24,29 @@ jobs:
       - name: Run the checks
         run: dotnet run --project src/Plain.Selftest -c Release
 
+      - name: Fuzz the readers harder than the default
+        run: dotnet run --project src/Plain.Selftest -c Release -- damage
+        env:
+          PLAIN_FUZZ: 5000
+
       - name: Publish the console twin
         run: dotnet publish src/Plain/Plain.csproj -c Release -r win-x64 -o dist/cli -p:CliBuild=true --nologo
 
       - name: A save must not change a file it did not edit
-        run: dist/cli/plain.exe roundtrip tests/fixtures/sheet.xlsx tests/fixtures/doc.docx tests/fixtures/deck.pptx
+        run: dist/cli/plain.exe roundtrip tests/fixtures/sheet.xlsx tests/fixtures/book.xlsx tests/fixtures/large.xlsx tests/fixtures/doc.docx tests/fixtures/review.docx tests/fixtures/deck.pptx
 
       - name: End to end through the console twin
         run: pwsh tests/integration.ps1 dist/cli/plain.exe
+
+  linux:
+    # The engine has no Windows in it, and staying that way is worth checking.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+      - name: Build and check the engine on Linux
+        run: |
+          dotnet build src/Plain.Core/Plain.Core.csproj -c Release --nologo
+          dotnet run --project src/Plain.Selftest -c Release

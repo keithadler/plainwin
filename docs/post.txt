@@ -1,0 +1,11 @@
+Plain for Windows: opens Word, Excel and PowerPoint files, edits the basics, and never damages what it doesn't understand.
+
+Every editor that opens a .docx reads it into its own idea of a document and writes that idea back out. Whatever it has no room for is quietly gone — the chart, the macro, the tracked changes, the header nobody looked at. You change three words and hand back something subtly different.
+
+Plain opens the file as the package of parts it really is and writes back every part it didn't edit as the exact bytes it found.
+
+Open a file, save it without changing anything, and you get the same file back byte for byte. That's a claim a test can check, and it's checked against real documents on every build — 39 of 39, including ones stuffed with macros and pivot tables.
+
+One exe. No installer, no account, no cloud, no telemetry, no network code at all. Free and MIT.
+
+Windows 10 or 11, Intel/AMD or ARM: https://github.com/keithadler/plainwin

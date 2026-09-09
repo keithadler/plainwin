@@ -57,6 +57,7 @@ public partial class MainWindow : Window
     {
         OpenPath(path);
         _notesVisible = showNotes;
+        _railVisible = !showNotes;   // the pictures show the app as it is meant to look, not as a setting left it
         Refresh();
     }
 
@@ -825,12 +826,12 @@ public partial class MainWindow : Window
             _active.Dirty = true;
             _active.Undo.Push(() => Restore(_active, before));
             Rebuild(_active);
-            Say(kind == BlockKind.Paragraph ? "That line is ordinary text now." : $"That line is a {Name(kind)} now.");
+            Say(kind == BlockKind.Paragraph ? "That line is ordinary text now." : $"That line is a {KindName(kind)} now.");
         }
         catch (Exception ex) { Say("Could not change that: " + Explain(ex)); }
     }
 
-    private static string Name(BlockKind kind) => kind switch
+    private static string KindName(BlockKind kind) => kind switch
     {
         BlockKind.Heading1 => "main heading",
         BlockKind.Heading2 => "heading",
@@ -1061,7 +1062,7 @@ public partial class MainWindow : Window
             {
                 StylePicker.Items.Clear();
                 foreach (var kind in kinds)
-                    StylePicker.Items.Add(new ComboBoxItem { Content = Name(kind), Tag = kind });
+                    StylePicker.Items.Add(new ComboBoxItem { Content = KindName(kind), Tag = kind });
             }
             var at = (_active.View as DocView)?.FocusedBlock;
             var current = at is { } index ? _active.File.Document.Read(index).Kind : BlockKind.Paragraph;
