@@ -13,7 +13,7 @@ namespace Plain;
 /// </summary>
 public static class Cli
 {
-    public const string Version = "1.4.0";
+    public const string Version = "1.4.1";
 
     private static readonly string[] Verbs =
         { "info", "parts", "text", "cells", "get", "set", "new", "replace", "row", "column", "width", "freeze", "sort", "explorer", "slide", "tablerow", "hidden", "find", "sheet", "height", "align", "colour", "band", "links", "compare", "border", "tidy", "reads", "choices", "notes", "describe", "link", "picture", "props", "pdf", "csv", "import", "count", "images", "apply", "changes", "comments", "roundtrip", "selftest", "version", "help", "--help", "-h", "--version" };
@@ -22,6 +22,16 @@ public static class Cli
 
     /// <summary>Was this switch given? Switches are compared exactly, so --case is not --Case.</summary>
     private static bool Flag(IReadOnlyList<string> args, string name) => args.Contains(name);
+
+    /// <summary>
+    /// The switches that are followed by a value. Everything else is on or off. This list is what keeps a flag's
+    /// value from being read as one of the words the verb was given.
+    /// </summary>
+    private static readonly HashSet<string> TakesAValue = new(StringComparer.Ordinal)
+    {
+        "--sheet", "--on", "--sides", "--colour", "--color", "--fill", "--ink",
+        "--set", "--cm", "--remove", "--since",
+    };
 
     /// <summary>The sheet by name, or the first one when no name was given.</summary>
     private static Sheet? PickSheet(Workbook book, string? name) =>
@@ -116,7 +126,20 @@ public static class Cli
     {
         try { Console.OutputEncoding = Encoding.UTF8; } catch { }
 
-        var positional = args.Where(a => !a.StartsWith("--")).ToList();
+        // A switch that takes a value swallows the word after it. Without this, "set book.xlsx B5 25000
+        // --sheet Summary" put the text "25000 Summary" in the cell: a number quietly became words, and a
+        // column that no longer adds up is exactly what this program exists to prevent.
+        var positional = new List<string>();
+        for (int i = 0; i < args.Length; i++)
+        {
+            if (args[i].StartsWith("--", StringComparison.Ordinal))
+            {
+                if (TakesAValue.Contains(args[i]) && i + 1 < args.Length
+                    && !args[i + 1].StartsWith("--", StringComparison.Ordinal)) i++;
+                continue;
+            }
+            positional.Add(args[i]);
+        }
         bool json = args.Contains("--json");
         bool numbered = args.Contains("--numbered");
         string verb = positional.FirstOrDefault()?.ToLowerInvariant() ?? "help";

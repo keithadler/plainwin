@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.4.1, 2026-09-09
+
+**A switch's value could end up in your cell.** `plain set book.xlsx B5 25000 --sheet Summary` wrote the text `25000 Summary` into B5: a number quietly became words, and a column of words does not add up. Every switch that takes a value was affected, on every verb that takes both a switch and words of its own, since switches with values were added in 1.3. The console twin now knows which switches are followed by a value and never reads one as something the verb was given.
+
+Found by measuring what each kind of edit rewrites, not by a test, which is why there are now checks for it.
+
+Nothing else changed. The window was never affected.
+
 ## 1.4.0, 2026-09-09
 
 **Lines round cells.** Thin, medium, thick, dotted, dashed or double, on all four sides or one at a time.

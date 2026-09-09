@@ -2,7 +2,7 @@
 
 **Office without the bloat.** Opens Word, Excel and PowerPoint files, does the fifth of the job that fills most of the day, and never damages the rest.
 
-**[Download Plain-for-Windows-1.4.0-x64.exe](https://github.com/keithadler/plainwin/releases/latest/download/Plain-for-Windows-1.4.0-x64.exe)** for ordinary Intel and AMD PCs, or **[Plain-for-Windows-1.4.0-arm64.exe](https://github.com/keithadler/plainwin/releases/latest/download/Plain-for-Windows-1.4.0-arm64.exe)** for Windows on ARM.
+**[Download Plain-for-Windows-1.4.1-x64.exe](https://github.com/keithadler/plainwin/releases/latest/download/Plain-for-Windows-1.4.1-x64.exe)** for ordinary Intel and AMD PCs, or **[Plain-for-Windows-1.4.1-arm64.exe](https://github.com/keithadler/plainwin/releases/latest/download/Plain-for-Windows-1.4.1-arm64.exe)** for Windows on ARM.
 
 Windows 10 or 11. One exe, no installer, no runtime to install, no administrator. Put it anywhere and double-click. Windows will warn you about an unknown publisher: choose **More info**, then **Run anyway**. It is not signed, because a signing certificate costs money this does not make.
 

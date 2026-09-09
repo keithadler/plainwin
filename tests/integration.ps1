@@ -109,6 +109,28 @@ Check "the right-click menu goes on and comes off cleanly" {
   $on -and $off -and (-not $left)
 }
 
+# A switch that takes a value must not be read as one of the words the verb was given. This went wrong once:
+# "set book.xlsx B5 25000 --sheet Summary" wrote the text "25000 Summary" into the cell, turning a number into
+# words, which is exactly the kind of quiet damage this program exists to prevent.
+# get reports the cell as it is shown, so 25000 comes back as 25,000 where the cell has a thousands separator.
+Copy-Item "$fx\sheet.xlsx" "$root\flags.xlsx" -Force
+$sheetName = ((& $Exe info "$root\flags.xlsx" | Select-String "^  sheet") -replace "^\s*sheet\s+", "" -replace ",.*$", "").Trim()
+& $Exe set "$root\flags.xlsx" B2 25000 --sheet $sheetName | Out-Null
+Check "a value set with a --sheet switch is still a number" {
+  ((& $Exe get "$root\flags.xlsx" B2) -replace "[,\s]", "") -eq "25000"
+}
+Check "and the switch's value is nowhere in the cell" {
+  -not ((& $Exe get "$root\flags.xlsx" B2) -match [regex]::Escape($sheetName))
+}
+& $Exe colour "$root\flags.xlsx" A1 --fill FFE7A1 --sheet $sheetName | Out-Null
+Check "two switches with values still leave the cell alone" {
+  ((& $Exe get "$root\flags.xlsx" B2) -replace "[,\s]", "") -eq "25000"
+}
+Check "and the file still opens afterwards" {
+  (& $Exe info "$root\flags.xlsx" | Out-String) -match "Excel workbook"
+}
+
 Remove-Item -Recurse -Force $root -ErrorAction SilentlyContinue
+
 if ($fail -eq 0) { Write-Host "integration: all passed" } else { Write-Host "integration: FAILURES" }
 exit $fail
