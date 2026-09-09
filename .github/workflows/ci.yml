@@ -52,3 +52,5 @@ jobs:
           dotnet run --project src/Plain.Selftest -c Release
       - name: The README's claims have to be true
         run: bash tests/docs.sh
+      - name: Every button reaches something
+        run: bash tests/reachable.sh
