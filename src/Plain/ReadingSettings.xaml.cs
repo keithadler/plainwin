@@ -48,6 +48,7 @@ public partial class ReadingSettings : Window
         LandscapeBox.IsChecked = _settings.Landscape;
         foreach (var mm in Margins) MarginBox.Items.Add(Describe(mm));
         MarginBox.SelectedItem = Describe(Nearest(_settings.MarginMm));
+        ExplorerBox.IsChecked = Explorer.RegisteredAnywhere();
         HeaderBox.Text = _settings.PageHeader;
         FooterBox.Text = _settings.PageFooter;
 
@@ -91,6 +92,7 @@ public partial class ReadingSettings : Window
         PaperBox.SelectedIndex = 0;
         LandscapeBox.IsChecked = false;
         MarginBox.SelectedItem = Describe(20);
+        ExplorerBox.IsChecked = Explorer.RegisteredAnywhere();
         HeaderBox.Text = "";
         FooterBox.Text = "Page {page} of {pages}";
         ShowSample();
@@ -107,10 +109,17 @@ public partial class ReadingSettings : Window
         _settings.Paper = PaperBox.SelectedItem as string ?? "A4";
         _settings.Landscape = LandscapeBox.IsChecked == true;
         _settings.MarginMm = Margins[Math.Max(0, MarginBox.SelectedIndex)];
+        // Only touch the registry when the answer actually changed, so opening settings and pressing Save does
+        // not rewrite keys for no reason.
+        bool wanted = ExplorerBox.IsChecked == true;
+        if (wanted != Explorer.RegisteredAnywhere()) ExplorerMessage = wanted ? Explorer.Register() : Explorer.Undo();
         _settings.PageHeader = HeaderBox.Text.Trim();
         _settings.PageFooter = FooterBox.Text.Trim();
         DialogResult = true;
     }
+
+    /// <summary>What the registry said when the switch was changed, so the window can pass it on.</summary>
+    public string? ExplorerMessage { get; private set; }
 
     /// <summary>Edges people actually ask for, in millimetres, rather than a box to type a number into.</summary>
     private static readonly double[] Margins = { 10, 15, 20, 25, 30 };

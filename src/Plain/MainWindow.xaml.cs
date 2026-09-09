@@ -672,7 +672,8 @@ public partial class MainWindow : Window
         ApplyTextScale();
         foreach (var file in _open) if (file.View is DocView doc) doc.ApplyReading(_settings);
         Refresh();
-        Say("Reading settings saved.");
+        // The registry line is worth reporting, because it changed something outside Plain's own folder.
+        Say(dialog.ExplorerMessage ?? "Settings saved.");
     }
 
     /// <summary>Copy the top cell of the selection down through the rest of it, the way a column of rates gets filled.</summary>

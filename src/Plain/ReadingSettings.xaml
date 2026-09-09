@@ -37,6 +37,12 @@
     <TextBlock Text="A copy is kept every half minute beside the settings, and offered back next time Plain starts."
                TextWrapping="Wrap" FontSize="11.5" Foreground="{DynamicResource Ink3}" Margin="22,0,0,18"/>
 
+    <TextBlock Text="Explorer" FontWeight="SemiBold" Margin="0,4,0,6"/>
+    <CheckBox x:Name="ExplorerBox" Content="Put &quot;Edit in Plain&quot; on the right-click menu for Office files"
+              Margin="0,0,0,4"/>
+    <TextBlock Text="Written under your own account only, so it never asks to be an administrator. It adds a line to the menu and offers Plain under Open with; it does not make itself the default for anything. Turning it off takes back exactly what it added."
+               TextWrapping="Wrap" FontSize="11.5" Foreground="{DynamicResource Ink3}" Margin="22,0,0,18"/>
+
     <TextBlock Text="Printing and PDF" FontWeight="SemiBold" Margin="0,4,0,6"/>
     <DockPanel Margin="0,0,0,8" LastChildFill="False">
       <TextBlock Text="Paper" VerticalAlignment="Center" Width="70" Foreground="{DynamicResource Ink2}"/>

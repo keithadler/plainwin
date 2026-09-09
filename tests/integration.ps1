@@ -70,6 +70,45 @@ Check "two new files are identical"    {
 }
 Check "selftest passes"                { (& $Exe selftest | Select-Object -Last 1) -match "0 failed" }
 
+# ---------- sort, widths, freezing and the right-click menu ----------
+
+Check "sort puts the rows in order" {
+  # A fresh copy: earlier checks have written formulas into book.xlsx, and sorting those is refused on purpose.
+  Copy-Item "$fx\sheet.xlsx" "$root\s.xlsx" -Force
+  & $Exe sort "$root\s.xlsx" A2:B4 A | Out-Null
+  (& $Exe get "$root\s.xlsx" A2) -le (& $Exe get "$root\s.xlsx" A3)
+}
+Check "sort refuses to move a formula" {
+  Copy-Item "$fx\sheet.xlsx" "$root\f.xlsx" -Force
+  & $Exe set "$root\f.xlsx" C2 "=A2" | Out-Null
+  $said = (& $Exe sort "$root\f.xlsx" A2:C4 A 2>&1 | Out-String)
+  $said -match "formula"
+}
+Check "a width can be set and read back" {
+  & $Exe width "$root\book.xlsx" B 33 | Out-Null
+  (& $Exe width "$root\book.xlsx" B 33 | Out-String) -match "33"
+}
+Check "a column can be fitted to its contents" { (& $Exe width "$root\book.xlsx" A fit | Out-String) -match "characters wide" }
+Check "rows can be frozen"                     { (& $Exe freeze "$root\book.xlsx" 1 | Out-String) -match "stay on screen" }
+Check "and unfrozen"                           { (& $Exe freeze "$root\book.xlsx" 0 | Out-String) -match "scrolls freely" }
+Check "the file still round trips after all that" { (& $Exe roundtrip "$root\book.xlsx" | Out-String) -match "identical" }
+
+Check "a pdf can be given paper and a footer" {
+  & $Exe pdf "$root\doc.docx" "$root\p.pdf" --paper Letter --landscape --footer "Page {page} of {pages}" | Out-Null
+  $bytes = [IO.File]::ReadAllBytes("$root\p.pdf")
+  $text = [Text.Encoding]::ASCII.GetString($bytes)
+  $text -match "MediaBox \[0 0 792" -and $text -match "Page 1 of"
+}
+
+Check "the right-click menu goes on and comes off cleanly" {
+  & $Exe explorer on | Out-Null
+  $on = (& $Exe explorer status | Out-String) -match "^on"
+  & $Exe explorer off | Out-Null
+  $off = (& $Exe explorer status | Out-String) -match "^off"
+  $left = Test-Path "HKCU:\Software\Classes\Plain.Document"
+  $on -and $off -and (-not $left)
+}
+
 Remove-Item -Recurse -Force $root -ErrorAction SilentlyContinue
 if ($fail -eq 0) { Write-Host "integration: all passed" } else { Write-Host "integration: FAILURES" }
 exit $fail

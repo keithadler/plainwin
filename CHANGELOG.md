@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.1.0, 2026-09-09
+
+**Sort rows.** By any column, up or down, numbers by value rather than as text and blanks always last. Plain refuses whenever sorting would make a formula mean something else: one inside the block, one reading only part of it, or a lookup whose answer depends on the order. A total underneath a table reads every row of it, and shuffling rows does not change a total, so that case goes ahead.
+
+**Column widths.** Drag the edge of a column heading to resize it; double-click the edge to fit it to its longest value. Widths are written where the file keeps them, so Excel opens the sheet the same way.
+
+**Keep the header on screen.** Freeze rows at the top so they stay while the rest scrolls. Read from and written to the sheet's own pane settings, so a sheet that already had a frozen header keeps it, and one you freeze here is frozen in Excel too.
+
+**Page setup for printing and PDF.** Paper (A4, Letter, Legal, A3, A5), sideways or not, how much white at the edges, and a line at the top and bottom where `{page}` and `{pages}` are filled in.
+
+**Open from Explorer.** An optional "Edit in Plain" line on the right-click menu for Office files. Written under your own account only, so it never asks to be an administrator, and it does not make itself the default for anything. Turning it off takes back exactly what it added, and nothing else.
+
+**A daily check for a new version.** One request to GitHub's releases API, a line in the status bar if there is a newer version, and nothing else: no identifier, nothing about your files, nothing downloaded, nothing installed. Off in Reading and settings; the console twin never checks at all. Plain shipped saying it had no network code, so the README, Help, PRIVACY and the rest now say what the one request is and how to stop it.
+
+**Fixed: bullets and curly quotes in a PDF.** A bullet came out as `€42`. Characters above 126 were written as an octal escape of their Unicode number, and a reader takes the first three digits as one character and prints the rest as text. They are now written where the built-in fonts keep them. This had been wrong since 1.0.0.
+
+**Console twin.** `plain sort`, `plain width`, `plain freeze`, `plain explorer on|off|status`, and `--paper`, `--landscape`, `--margin`, `--header`, `--footer` for `plain pdf`.
+
 ## 1.0.1, 2026-09-08
 
 **Typing into a new document and saving no longer loses the words.** The editors hand their text over when they lose the caret, which is what keeps a long document from rebuilding on every keystroke. Nothing forced that handover before a save, and a file with a single box in it, which is exactly what a new blank document is, never loses the caret on its own. So you could make a new document, type a page, press Ctrl+S, and save an empty file. Every path that reads the file now takes the caret away first: save, save a copy, print, export to PDF, and the half-minute keeper that guards against a machine stopping.

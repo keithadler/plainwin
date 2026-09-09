@@ -25,10 +25,10 @@
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
 
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Version>1.0.1</Version>
-    <AssemblyVersion>1.0.1.0</AssemblyVersion>
-    <FileVersion>1.0.1.0</FileVersion>
-    <InformationalVersion>1.0.1</InformationalVersion>
+    <Version>1.1.0</Version>
+    <AssemblyVersion>1.1.0.0</AssemblyVersion>
+    <FileVersion>1.1.0.0</FileVersion>
+    <InformationalVersion>1.1.0</InformationalVersion>
     <Product>Plain for Windows</Product>
     <Company>Keith Adler</Company>
     <Copyright>Copyright (c) 2026 Keith Adler. MIT licensed.</Copyright>

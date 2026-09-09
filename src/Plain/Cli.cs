@@ -13,10 +13,10 @@ namespace Plain;
 /// </summary>
 public static class Cli
 {
-    public const string Version = "1.0.1";
+    public const string Version = "1.1.0";
 
     private static readonly string[] Verbs =
-        { "info", "parts", "text", "cells", "get", "set", "new", "replace", "row", "column", "width", "freeze", "sort", "props", "pdf", "csv", "import", "count", "images", "apply", "changes", "comments", "roundtrip", "selftest", "version", "help", "--help", "-h", "--version" };
+        { "info", "parts", "text", "cells", "get", "set", "new", "replace", "row", "column", "width", "freeze", "sort", "explorer", "props", "pdf", "csv", "import", "count", "images", "apply", "changes", "comments", "roundtrip", "selftest", "version", "help", "--help", "-h", "--version" };
 
     public static bool IsVerb(string arg) => Verbs.Contains(arg, StringComparer.OrdinalIgnoreCase);
 
@@ -39,6 +39,7 @@ public static class Cli
           plain width <file> <col> <chars|fit> [sheet]   set a column's width, or fit it to its contents
           plain freeze <file> <rows> [sheet]             keep this many rows at the top on screen
           plain sort <file> <range> <col> [down] [sheet] sort rows, refusing if a formula would be broken
+          plain explorer on|off|status     "Edit in Plain" on the right-click menu, for your account only
 
         For pdf: --paper A4|Letter|Legal|A3|A5  --landscape  --margin <mm>
                  --header "<text>"  --footer "<text>"   with {page} and {pages}
@@ -272,6 +273,25 @@ public static class Cli
                     file.Save();
                     o.WriteLine($"changed {result.Occurrences} occurrence{(result.Occurrences == 1 ? "" : "s")} in {result.Cells} place{(result.Cells == 1 ? "" : "s")}; {edited} of {total} parts rewritten, {kept} kept byte for byte");
                     return 0;
+                }
+
+                case "explorer":
+                {
+                    string what = rest.Count > 0 ? rest[0].ToLowerInvariant() : "status";
+                    switch (what)
+                    {
+                        case "on":  o.WriteLine(Explorer.Register()); return Explorer.RegisteredAnywhere() ? 0 : 2;
+                        case "off": o.WriteLine(Explorer.Undo()); return Explorer.RegisteredAnywhere() ? 2 : 0;
+                        case "status":
+                            bool there = Explorer.RegisteredAnywhere();
+                            o.WriteLine(there
+                                ? (Explorer.Registered()
+                                    ? "on, pointing at this copy of Plain"
+                                    : "on, but pointing at a different copy of Plain")
+                                : "off");
+                            return there ? 0 : 1;
+                        default: err.WriteLine("explorer on|off|status"); return 64;
+                    }
                 }
 
                 case "sort":
