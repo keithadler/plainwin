@@ -16,7 +16,7 @@ public static class Cli
     public const string Version = "1.0.0";
 
     private static readonly string[] Verbs =
-        { "info", "parts", "text", "cells", "get", "set", "roundtrip", "selftest", "version", "help", "--help", "-h", "--version" };
+        { "info", "parts", "text", "cells", "get", "set", "new", "roundtrip", "selftest", "version", "help", "--help", "-h", "--version" };
 
     public static bool IsVerb(string arg) => Verbs.Contains(arg, StringComparer.OrdinalIgnoreCase);
 
@@ -24,6 +24,7 @@ public static class Cli
         Plain for Windows - opens Word, Excel and PowerPoint files, edits the basics,
         and never damages what it doesn't understand.
 
+          plain new <file.xlsx|.docx|.pptx>  make a new empty file of that kind
           plain info <file>                what the file is, and what Plain keeps untouched
           plain parts <file> [--json]      every part, and whether Plain shows it or preserves it
           plain text <file>                the text, as plain text
@@ -63,6 +64,14 @@ public static class Cli
 
                 case "selftest":
                     return Core.Tests.SelfTest.Run(o, rest.FirstOrDefault(), args.Contains("--list"));
+
+                case "new":
+                {
+                    if (rest.Count < 1) { err.WriteLine("new <file.xlsx|file.docx|file.pptx>"); return 64; }
+                    var made = PlainFile.Create(rest[0]);
+                    o.WriteLine($"made {Path.GetFileName(made.Path)}: an empty {Describe(made.Kind)}, {made.Parts().Count} parts");
+                    return 0;
+                }
 
                 case "info":
                 {

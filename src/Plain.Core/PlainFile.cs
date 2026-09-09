@@ -36,6 +36,23 @@ public sealed class PlainFile
     /// <summary>Open from bytes already in hand, for tests and for anything that never touches a disk.</summary>
     public static PlainFile Read(byte[] bytes) => new("", OpcPackage.Read(bytes));
 
+    /// <summary>
+    /// Make a new, empty file at that path and open it. The kind comes from the extension, so "notes.docx" is a
+    /// document and "sums.xlsx" a workbook. It refuses to write over something that is already there.
+    /// </summary>
+    public static PlainFile Create(string path)
+    {
+        var kind = KindOf(path);
+        if (kind == FileKind.Unknown)
+            throw new OpcPackage.PackageException(
+                "Name the file .xlsx, .docx or .pptx so Plain knows which kind to make.");
+        if (File.Exists(path))
+            throw new OpcPackage.PackageException($"{System.IO.Path.GetFileName(path)} already exists; Plain will not write over it.");
+
+        File.WriteAllBytes(path, Blank.Make(kind));
+        return Open(path);
+    }
+
     /// <summary>The parts Plain draws on screen, as opposed to the ones it only keeps.</summary>
     public IEnumerable<string> ShownParts()
     {

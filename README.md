@@ -24,6 +24,10 @@ plain roundtrip *.docx *.xlsx *.pptx
 
 Change one cell and only the parts that hold that cell are rewritten. The status bar counts it for you on every save: *10 parts read, 4 shown, 6 kept byte for byte*.
 
+## Making one
+
+**New** writes an empty workbook, document or deck: the name you give it picks which. These are built part by part from what the format actually requires, so they carry no other program's name in their properties, no leftover styles and no theme nobody chose. A file Plain makes is one it can open, edit and hand back unchanged, and the checks prove that round trip rather than assuming it. LibreOffice opens all three and reads back what Plain put in them.
+
 ## What it edits
 
 - **Excel**: cell values, text and formulas, across every sheet in the workbook, with the sheets along the bottom where Excel puts them. Column widths and number formats come from the file, so the sheet looks like the one whoever made it laid out.
@@ -57,7 +61,6 @@ Charts, pivot tables, macros, SmartArt, pictures, embedded objects, tracked chan
 - **Mixed formatting inside one paragraph collapses when you retype it.** A paragraph with one bold word in the middle becomes one run in the first run's formatting. Plain says so in the status bar when it happens. Paragraphs you do not touch are untouched.
 - **No drawing.** Shapes, pictures and diagrams are kept, never rendered.
 - **No ZIP64.** A package using ZIP64 records is opened and re-saved unchanged, but not edited.
-- **It does not create files.** Plain opens what you already have. It never adds a part to a file, so there is nothing to make a new document with.
 - **Not a replacement for Office.** It is the thing to reach for when you need to change three words in a contract, or one number in a forecast, without a four gigabyte install.
 
 ![Plain showing a deck](docs/screenshots/deck.png)

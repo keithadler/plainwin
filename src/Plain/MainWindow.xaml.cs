@@ -49,6 +49,35 @@ public partial class MainWindow : Window
 
     // ---------- opening ----------
 
+    /// <summary>
+    /// Make a new file. Which kind comes from the name you give it, so the one dialog picks both the place and the
+    /// kind, and there is no menu to walk through first. The file exists on disk before you type into it, which
+    /// means there is nothing to lose if the machine gives up half way through your first paragraph.
+    /// </summary>
+    private void OnNew(object sender, RoutedEventArgs e)
+    {
+        var dialog = new SaveFileDialog
+        {
+            Title = "New file",
+            FileName = "Untitled.xlsx",
+            DefaultExt = ".xlsx",
+            Filter = "Excel workbook|*.xlsx|Word document|*.docx|PowerPoint deck|*.pptx",
+            OverwritePrompt = false,   // Plain refuses to write over one itself, with a clearer message
+        };
+        if (dialog.ShowDialog(this) != true) return;
+
+        try
+        {
+            var made = PlainFile.Create(dialog.FileName);
+            var entry = Build(made, dialog.FileName);
+            _open.Add(entry);
+            _active = entry;
+            Say($"Made {entry.Name}. It is on disk already, so there is nothing to lose.");
+        }
+        catch (Exception ex) { Say("Could not make that file: " + Explain(ex)); }
+        Refresh();
+    }
+
     private void OnOpen(object sender, RoutedEventArgs e)
     {
         var dialog = new OpenFileDialog
@@ -160,6 +189,7 @@ public partial class MainWindow : Window
             case Key.Z: OnUndo(sender, e); e.Handled = true; break;
             case Key.W: CloseActive(); e.Handled = true; break;
             case Key.F: ShowFind(); e.Handled = true; break;
+            case Key.N: OnNew(sender, e); e.Handled = true; break;
         }
     }
 

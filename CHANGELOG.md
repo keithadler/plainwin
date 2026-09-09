@@ -10,6 +10,8 @@ Excel: cells, text, formulas, shared strings, number formats and the column widt
 
 The window: one command row of six controls, a formula bar for spreadsheets, a panel listing every part the app is preserving with its size and what it is, and a status bar that counts the parts on every save. Follows the Windows light or dark setting. Multi-step undo. Drag a file in to open it.
 
+New makes an empty workbook, document or deck, built part by part from the smallest set the format requires. Two blank files of a kind are the same bytes, which is what lets a test check them. LibreOffice opens all three and reads back what Plain writes into them, including a formula it then computes.
+
 Blocks of cells can be selected with Shift, then copied, cut and pasted as tab separated text, the format every spreadsheet uses on the clipboard. A paste is one step of undo however many cells it fills.
 
 Every sheet of a workbook is reachable from a strip along the bottom, and each sheet keeps its own grid and selection once you have visited it. Find (Ctrl+F) runs over the whole file and, in a spreadsheet, over the formulas as well as the values. Save a copy writes the file under a new name and leaves the original alone.

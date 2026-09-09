@@ -134,6 +134,105 @@ public static class OpcSuite
         }
         finally { try { File.Delete(scratch); } catch { } }
 
+        NewFiles(s);
         return s;
+    }
+
+    /// <summary>
+    /// A file Plain makes has to be a real one: it must open, it must survive a save unchanged, it must take an edit,
+    /// and the edit must read back. Anything less and "New" would be handing people a file that fails elsewhere.
+    /// </summary>
+    private static void NewFiles(Suite s)
+    {
+        foreach (var (extension, kind) in new[] { (".xlsx", FileKind.Spreadsheet), (".docx", FileKind.Document), (".pptx", FileKind.Presentation) })
+        {
+            var made = Blank.Make(kind);
+            s.Check($"a new {extension} is not empty", made.Length > 500);
+
+            // Two blank files must be the same bytes, or nothing about them can be tested.
+            s.Bytes($"a new {extension} is made the same way every time", made, Blank.Make(kind));
+
+            var file = PlainFile.Read(made);
+            s.Equal($"a new {extension} opens as the right kind", kind, file.Kind);
+            s.Bytes($"a new {extension} survives a save untouched", made, file.Package.ToBytes());
+            s.Check($"a new {extension} has its content types", file.Package.Has("[Content_Types].xml"));
+            s.Check($"a new {extension} has its root relationships", file.Package.Has("_rels/.rels"));
+            s.Check($"every part of a new {extension} is readable",
+                    file.Package.Parts.All(part => file.Package.Read(part.Name).Length > 0));
+            s.Check($"every part of a new {extension} is declared in the content types",
+                    Declared(file), "a part is in the package that nothing says the type of");
+
+            switch (kind)
+            {
+                case FileKind.Spreadsheet:
+                    s.Equal("a new workbook has one sheet", 1, file.Workbook!.Sheets.Count);
+                    s.Equal("the sheet is called Sheet1", "Sheet1", file.Workbook.Sheets[0].Name);
+                    s.Check("the sheet starts empty", !file.Workbook.Sheets[0].Cells().Any());
+                    file.Workbook.Sheets[0].Set("B3", "hello");
+                    file.Workbook.Sheets[0].Set("B4", "42");
+                    file.Workbook.Sheets[0].Set("B5", "=B4*2");
+                    break;
+                case FileKind.Document:
+                    s.Check("a new document has a line to type on", file.Document!.BlockCount >= 1);
+                    file.Document.SetText(0, "hello");
+                    break;
+                case FileKind.Presentation:
+                    s.Equal("a new deck has one slide", 1, file.Deck!.Slides.Count);
+                    s.Check("the slide has text to replace", file.Deck.Slides[0].Texts().Any());
+                    file.Deck.Slides[0].SetLine(0, 0, "hello");
+                    break;
+            }
+
+            file.Flush();
+            var reopened = PlainFile.Read(file.Package.ToBytes());
+            switch (kind)
+            {
+                case FileKind.Spreadsheet:
+                    s.Equal("text typed into a new workbook reads back", "hello", reopened.Workbook!.Sheets[0].Read("B3").Display);
+                    s.Equal("a number typed into a new workbook reads back", "42", reopened.Workbook.Sheets[0].Read("B4").Raw);
+                    s.Equal("a formula typed into a new workbook reads back", "=B4*2", reopened.Workbook.Sheets[0].Read("B5").Formula);
+                    break;
+                case FileKind.Document:
+                    s.Equal("text typed into a new document reads back", "hello", reopened.Document!.Read(0).Text);
+                    break;
+                case FileKind.Presentation:
+                    s.Equal("text typed into a new deck reads back", "hello", reopened.Deck!.Slides[0].Title());
+                    break;
+            }
+        }
+
+        // Creating on disk must refuse to write over something, and must refuse a name it cannot make sense of.
+        var dir = Path.Combine(Path.GetTempPath(), "plain-new-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var made = Path.Combine(dir, "book.xlsx");
+            var created = PlainFile.Create(made);
+            s.Check("a new file lands on disk", File.Exists(made));
+            s.Equal("and opens as a workbook", FileKind.Spreadsheet, created.Kind);
+            s.Throws<OpcPackage.PackageException>("it will not write over a file that exists", () => PlainFile.Create(made));
+            s.Throws<OpcPackage.PackageException>("it refuses a name it cannot place",
+                () => PlainFile.Create(Path.Combine(dir, "mystery.txt")));
+        }
+        finally { try { Directory.Delete(dir, true); } catch { } }
+    }
+
+    /// <summary>Every part must be covered by a Default for its extension or an Override for its name.</summary>
+    private static bool Declared(PlainFile file)
+    {
+        var types = Xml.Parse(file.Package.Read("[Content_Types].xml")).Root!;
+        var defaults = types.Elements(Ns.Ct + "Default")
+            .Select(d => (string?)d.Attribute("Extension") ?? "").ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var overrides = types.Elements(Ns.Ct + "Override")
+            .Select(o => ((string?)o.Attribute("PartName") ?? "").TrimStart('/')).ToHashSet(StringComparer.Ordinal);
+
+        foreach (var part in file.Package.Parts)
+        {
+            if (overrides.Contains(part.Name)) continue;
+            var extension = System.IO.Path.GetExtension(part.Name).TrimStart('.');
+            if (defaults.Contains(extension)) continue;
+            return false;
+        }
+        return true;
     }
 }

@@ -54,6 +54,20 @@ Check "the rest of the document is unchanged" { (& $Exe text "$root\doc.docx" | 
 Check "deck text reads"                { (& $Exe text "$root\deck.pptx" | Out-String) -match "Where we are today" }
 Check "deck slides are listed"         { (& $Exe info "$root\deck.pptx" | Out-String) -match "slide 2" }
 
+Check "new makes a workbook"           { & $Exe new "$root\new.xlsx" *> $null; (Test-Path "$root\new.xlsx") -and $LASTEXITCODE -eq 0 }
+Check "new makes a document"           { & $Exe new "$root\new.docx" *> $null; Test-Path "$root\new.docx" }
+Check "new makes a deck"               { & $Exe new "$root\new.pptx" *> $null; Test-Path "$root\new.pptx" }
+Check "a new file is the right kind"   { (& $Exe info "$root\new.xlsx" | Out-String) -match "Excel workbook" }
+Check "a new file survives a save"     { & $Exe roundtrip "$root\new.xlsx" "$root\new.docx" "$root\new.pptx" *> $null; $LASTEXITCODE -eq 0 }
+Check "a new workbook takes an edit"   { & $Exe set "$root\new.xlsx" A1 "typed" *> $null; (& $Exe get "$root\new.xlsx" A1) -eq "typed" }
+Check "a new workbook takes a formula" { & $Exe set "$root\new.xlsx" A2 "=1+1" *> $null; (& $Exe get "$root\new.xlsx" A2) -eq "=1+1" }
+Check "a new deck has a slide"         { (& $Exe info "$root\new.pptx" | Out-String) -match "slide 1" }
+Check "new will not overwrite"         { & $Exe new "$root\new.xlsx" *> $null; $LASTEXITCODE -eq 2 }
+Check "new refuses an unknown kind"    { & $Exe new "$root\new.txt" *> $null; $LASTEXITCODE -eq 2 }
+Check "two new files are identical"    {
+  & $Exe new "$root\a.xlsx" *> $null; & $Exe new "$root\b.xlsx" *> $null
+  (Get-FileHash "$root\a.xlsx").Hash -eq (Get-FileHash "$root\b.xlsx").Hash
+}
 Check "selftest passes"                { (& $Exe selftest | Select-Object -Last 1) -match "0 failed" }
 
 Remove-Item -Recurse -Force $root -ErrorAction SilentlyContinue
