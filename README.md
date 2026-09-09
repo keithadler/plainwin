@@ -36,7 +36,7 @@ Change one cell and only the parts holding that cell are rewritten. The status b
 
 **Presentations.** The text on each slide, picked from a rail of slides.
 
-**All three.** Find and replace across the whole file. Save a copy. Print. Save as PDF. Comments and tracked changes, read, accepted or turned down one at a time. Document properties, viewable and strippable. The pictures inside the file, shown so you can see what you are sending. Multi-step undo. Unsaved work kept every half minute in case the machine stops.
+**All three.** **New** makes an empty spreadsheet, document or presentation: pick which, then say where it goes. Find and replace across the whole file. Save a copy. Print. Save as PDF. Comments and tracked changes, read, accepted or turned down one at a time. Document properties, viewable and strippable. The pictures inside the file, shown so you can see what you are sending. Multi-step undo. Unsaved work kept every half minute in case the machine stops.
 
 ![Plain showing a document](docs/screenshots/doc.png)
 

@@ -56,6 +56,8 @@ public static class Cli
         A cell is A1. A block is a number from "plain text --numbered". A value that starts
         with = is a formula. Nothing is uploaded and nothing is sent anywhere, ever.
         Exit codes: 0 fine, 1 something to look at, 2 problem, 64 usage.
+
+        Built by Keith Adler. Free, MIT. github.com/keithadler/plainwin
         """;
 
     public static int Run(string[] args, TextWriter o, TextWriter err)
@@ -78,6 +80,8 @@ public static class Cli
 
                 case "version" or "--version":
                     o.WriteLine($"Plain for Windows {Version}");
+                    o.WriteLine("Built by Keith Adler. Free and MIT licensed.");
+                    o.WriteLine("github.com/keithadler/plainwin  -  keithadler.github.io");
                     return 0;
 
                 case "selftest":

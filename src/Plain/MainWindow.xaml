@@ -44,7 +44,15 @@
         <Button x:Name="KeepBtn" Style="{StaticResource Flat}" Click="OnToggleRail" DockPanel.Dock="Right"
                 Background="{DynamicResource PreservedSoft}" BorderBrush="{DynamicResource PreservedLine}"
                 Foreground="{DynamicResource Preserved}" FontWeight="SemiBold" Content="Preserved"/>
-        <Button x:Name="NewBtn" Style="{StaticResource Flat}" Content="New" Click="OnNew" DockPanel.Dock="Left"/>
+        <Button x:Name="NewBtn" Style="{StaticResource Flat}" Content="New" Click="OnNew" DockPanel.Dock="Left">
+          <Button.ContextMenu>
+            <ContextMenu x:Name="NewMenu">
+              <MenuItem Header="Spreadsheet  (.xlsx)" Click="OnNewSheet"/>
+              <MenuItem Header="Document  (.docx)" Click="OnNewDoc"/>
+              <MenuItem Header="Presentation  (.pptx)" Click="OnNewDeck"/>
+            </ContextMenu>
+          </Button.ContextMenu>
+        </Button>
         <Button x:Name="OpenBtn" Style="{StaticResource Flat}" Content="Open" Click="OnOpen" DockPanel.Dock="Left" Margin="2,0,0,0"/>
         <Button x:Name="SaveBtn" Style="{StaticResource Flat}" Content="Save" Click="OnSave" DockPanel.Dock="Left" Margin="2,0,0,0"/>
         <Button x:Name="CopyBtn" Style="{StaticResource Flat}" Content="Save a copy" Click="OnSaveCopy" DockPanel.Dock="Left" Margin="2,0,0,0"/>

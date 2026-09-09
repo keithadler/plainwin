@@ -117,24 +117,53 @@ public partial class MainWindow : Window
     /// kind, and there is no menu to walk through first. The file exists on disk before you type into it, which
     /// means there is nothing to lose if the machine gives up half way through your first paragraph.
     /// </summary>
+    /// <summary>Ask which of the three to make. The kind is a choice, not something buried in a file dialog.</summary>
     private void OnNew(object sender, RoutedEventArgs e)
     {
+        if (sender is not Button button || button.ContextMenu is null) { MakeNew(FileKind.Spreadsheet); return; }
+        button.ContextMenu.PlacementTarget = button;
+        button.ContextMenu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
+        button.ContextMenu.IsOpen = true;
+    }
+
+    private void OnNewSheet(object sender, RoutedEventArgs e) => MakeNew(FileKind.Spreadsheet);
+    private void OnNewDoc(object sender, RoutedEventArgs e) => MakeNew(FileKind.Document);
+    private void OnNewDeck(object sender, RoutedEventArgs e) => MakeNew(FileKind.Presentation);
+
+    /// <summary>
+    /// Make an empty file of the chosen kind and open it. It is written to disk before you type into it, so there is
+    /// nothing to lose if the machine gives up half way through your first paragraph.
+    /// </summary>
+    private void MakeNew(FileKind kind)
+    {
+        var (extension, what, filter) = kind switch
+        {
+            FileKind.Document => (".docx", "Document", "Word document|*.docx"),
+            FileKind.Presentation => (".pptx", "Presentation", "PowerPoint deck|*.pptx"),
+            _ => (".xlsx", "Spreadsheet", "Excel workbook|*.xlsx"),
+        };
+
         var dialog = new SaveFileDialog
         {
-            Title = "New file",
-            FileName = "Untitled.xlsx",
-            DefaultExt = ".xlsx",
-            Filter = "Excel workbook|*.xlsx|Word document|*.docx|PowerPoint deck|*.pptx",
+            Title = $"New {what.ToLowerInvariant()}",
+            FileName = "Untitled" + extension,
+            DefaultExt = extension,
+            Filter = filter + "|All files|*.*",
             OverwritePrompt = false,   // Plain refuses to write over one itself, with a clearer message
         };
         if (dialog.ShowDialog(this) != true) return;
 
+        // Whatever they name it, the extension decides the kind, so a typed .docx still gets a document.
+        var path = dialog.FileName;
+        if (PlainFile.KindOf(path) == FileKind.Unknown) path += extension;
+
         try
         {
-            var made = PlainFile.Create(dialog.FileName);
-            var entry = Build(made, dialog.FileName);
+            var made = PlainFile.Create(path);
+            var entry = Build(made, path);
             _open.Add(entry);
             _active = entry;
+            _settings.Remember(path);
             Say($"Made {entry.Name}. It is on disk already, so there is nothing to lose.");
         }
         catch (Exception ex) { Say("Could not make that file: " + Explain(ex)); }
@@ -333,7 +362,7 @@ public partial class MainWindow : Window
             case Key.W: CloseActive(); e.Handled = true; break;
             case Key.F: ShowFind(); e.Handled = true; break;
             case Key.H: ShowFind(replacing: true); e.Handled = true; break;
-            case Key.N: OnNew(sender, e); e.Handled = true; break;
+            case Key.N: MakeNew(FileKind.Spreadsheet); e.Handled = true; break;
             case Key.P: OnPrint(sender, e); e.Handled = true; break;
             case Key.D: FillDown(); e.Handled = true; break;
             case Key.B: Mark("b"); e.Handled = true; break;
@@ -528,13 +557,16 @@ public partial class MainWindow : Window
     private void OnAbout(object sender, RoutedEventArgs e)
     {
         MessageBox.Show(this,
-            $"Plain for Windows {Cli.Version}\n\n" +
+            $"Plain for Windows {Cli.Version}\n" +
+            "Built by Keith Adler.\n\n" +
             "Opens Word, Excel and PowerPoint files, edits the basics, and never damages what it doesn't understand.\n\n" +
             "The panel on the right names everything in a file that Plain keeps but cannot draw. All of it is written " +
             "back exactly as it was found, so nothing you cannot see is at risk when you save.\n\n" +
-            "Free and MIT licensed. No account, no cloud, nothing sent anywhere.\n\n" +
+            "Free and MIT licensed. No account, no cloud, and no network code in it at all.\n\n" +
+            "More small apps like this one: keithadler.github.io\n" +
+            "Source and issues: github.com/keithadler/plainwin\n\n" +
             $"Settings and kept copies live in:\n{Settings.Folder}",
-            "About Plain", MessageBoxButton.OK, MessageBoxImage.Information);
+            "About Plain for Windows", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
     private void OnSettings(object sender, RoutedEventArgs e)
