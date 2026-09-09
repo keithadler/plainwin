@@ -13,14 +13,32 @@ public sealed class Styles
     private readonly Dictionary<int, string> _formats = new();   // style index -> format code
     private static readonly DateTime Epoch = new(1899, 12, 30);
 
+    private readonly OpcPackage _pkg;
+    private XDocument? _doc;
+    private bool _dirty;
+
+    /// <summary>The formats worth offering by name, in the order a person would look for them.</summary>
+    public static readonly (string Name, string Code)[] Common =
+    {
+        ("General", ""),
+        ("Number", "#,##0.00"),
+        ("Whole number", "#,##0"),
+        ("Currency", "\u00a3#,##0.00"),
+        ("Percent", "0.0%"),
+        ("Date", "dd/mm/yyyy"),
+        ("Text", "@"),
+    };
+
     private readonly Dialect D;
 
     public Styles(OpcPackage pkg, Dialect dialect)
     {
         D = dialect;
+        _pkg = pkg;
         if (!pkg.Has("xl/styles.xml")) return;
         XDocument doc;
         try { doc = Xml.Parse(pkg.Read("xl/styles.xml")); } catch { return; }
+        _doc = doc;
 
         var custom = new Dictionary<int, string>();
         foreach (var f in doc.Root!.Element(D.Sheet + "numFmts")?.Elements(D.Sheet + "numFmt") ?? Enumerable.Empty<XElement>())
@@ -65,6 +83,80 @@ public sealed class Styles
         49 => "@",
         _ => "",
     };
+
+    /// <summary>The format code a cell's style asks for, empty when it has none.</summary>
+    public string CodeAt(int styleIndex) => _formats.TryGetValue(styleIndex, out var code) ? code : "";
+
+    /// <summary>
+    /// The style index that is the one a cell already has, but showing numbers the given way. Everything else about
+    /// the cell's look - its font, its colour, its borders - is carried across, because someone changing a column to
+    /// currency did not ask to lose the shading on it.
+    /// </summary>
+    public int WithFormat(int currentStyle, string code)
+    {
+        if (_doc?.Root is null) throw new OpcPackage.PackageException("This workbook has no style table, so Plain cannot change how a cell looks.");
+
+        int formatId = code.Length == 0 ? 0 : FormatId(code);
+        var cellXfs = _doc.Root.Element(D.Sheet + "cellXfs");
+        if (cellXfs is null) throw new OpcPackage.PackageException("This workbook's style table has no cell formats.");
+
+        var all = cellXfs.Elements(D.Sheet + "xf").ToList();
+        var basis = currentStyle >= 0 && currentStyle < all.Count ? all[currentStyle] : all.FirstOrDefault();
+        if (basis is null) throw new OpcPackage.PackageException("This workbook's style table is empty.");
+
+        // If one already says exactly this, use it rather than growing the table every time somebody clicks.
+        for (int i = 0; i < all.Count; i++)
+            if (SameApartFromFormat(all[i], basis) && Xml.Int(all[i].Attribute("numFmtId"), 0) == formatId)
+                return i;
+
+        var made = new XElement(basis);
+        made.SetAttributeValue("numFmtId", formatId);
+        made.SetAttributeValue("applyNumberFormat", "1");
+        cellXfs.Add(made);
+        cellXfs.SetAttributeValue("count", all.Count + 1);
+        _formats[all.Count] = code;
+        _dirty = true;
+        return all.Count;
+    }
+
+    private static bool SameApartFromFormat(XElement a, XElement b)
+    {
+        foreach (var name in new[] { "fontId", "fillId", "borderId", "xfId", "applyFont", "applyFill", "applyBorder", "applyAlignment" })
+            if ((string?)a.Attribute(name) != (string?)b.Attribute(name)) return false;
+        return a.Element(a.Name.Namespace + "alignment")?.ToString() == b.Element(b.Name.Namespace + "alignment")?.ToString();
+    }
+
+    /// <summary>The id for a format code, adding it to the table when the workbook has never used it.</summary>
+    private int FormatId(string code)
+    {
+        var numFmts = _doc!.Root!.Element(D.Sheet + "numFmts");
+        foreach (var f in numFmts?.Elements(D.Sheet + "numFmt") ?? Enumerable.Empty<XElement>())
+            if ((string?)f.Attribute("formatCode") == code) return Xml.Int(f.Attribute("numFmtId"), 0);
+
+        // The built-in codes have fixed ids; using one avoids inventing a format the file already knows.
+        for (int id = 0; id <= 49; id++) if (BuiltIn(id) == code) return id;
+
+        if (numFmts is null)
+        {
+            numFmts = new XElement(D.Sheet + "numFmts", new XAttribute("count", 0));
+            _doc.Root.AddFirst(numFmts);
+        }
+        // Ids below 164 belong to the format itself, so a new one starts above them.
+        int next = 164;
+        foreach (var f in numFmts.Elements(D.Sheet + "numFmt"))
+            next = Math.Max(next, Xml.Int(f.Attribute("numFmtId"), 163) + 1);
+        numFmts.Add(new XElement(D.Sheet + "numFmt", new XAttribute("numFmtId", next), new XAttribute("formatCode", code)));
+        numFmts.SetAttributeValue("count", numFmts.Elements(D.Sheet + "numFmt").Count());
+        _dirty = true;
+        return next;
+    }
+
+    public void Flush()
+    {
+        if (!_dirty || _doc is null) return;
+        _pkg.Write("xl/styles.xml", Xml.ToBytes(_doc));
+        _dirty = false;
+    }
 
     /// <summary>Render a stored number the way its format asks. Text and unrecognised formats come back unchanged.</summary>
     public string Format(string raw, int styleIndex)

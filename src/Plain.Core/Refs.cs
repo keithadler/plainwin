@@ -87,7 +87,8 @@ public static class Refs
             ? name
             : "'" + name.Replace("'", "''") + "'";
 
-    private static IReadOnlyList<Token> Scan(string formula)
+    /// <summary>The references in a formula, with where each one sits. Used by the evaluator as well as the rewriter.</summary>
+    internal static IReadOnlyList<Token> Scan(string formula)
     {
         var found = new List<Token>();
         if (string.IsNullOrEmpty(formula)) return found;

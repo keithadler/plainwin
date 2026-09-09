@@ -78,7 +78,7 @@ public static class ScaleSuite
             s.Check($"saving a large sheet stays quick ({sw.ElapsedMilliseconds} ms)", sw.ElapsedMilliseconds < 5000);
 
             var after = new Workbook(OpcPackage.Open(work)).Sheets[0];
-            s.Equal("the total on the edited row is cleared", "", after.Read("E2").Raw);
+            s.Equal("the total on the edited row is worked out again", "297", after.Read("E2").Raw);   // 99 * 3
             s.Equal("a total thousands of rows away keeps its value", farAway, after.Read("E4000").Raw);
         }
         finally { try { File.Delete(work); } catch { } }

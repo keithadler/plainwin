@@ -73,6 +73,7 @@ public static class GridSuite
             s.Check("the new row is empty", sheet.Read("A3").IsEmpty);
             s.Equal("the total moved down with its row", "APAC", sheet.Read("A5").Display);
             s.Equal("and now sums four rows", "=SUM(B2:B5)", sheet.Read("B6").Formula);
+            s.Equal("and shows the same total, since the new row is empty", "877500", sheet.Read("B6").Raw);
 
             w.Save(work);
             var again = new Workbook(OpcPackage.Open(work)).Sheets[0];

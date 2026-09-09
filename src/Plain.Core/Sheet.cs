@@ -187,7 +187,84 @@ public sealed class Workbook
             var cells = stale.Where(x => x.Item1 == i).Select(x => x.Item2).ToHashSet();
             if (cells.Count > 0) _sheets[i].ClearCached(cells);
         }
+
+        Recompute(stale, formulas, byName);
         _changed.Clear();
+    }
+
+    /// <summary>Work out the given formula cells again, in whatever order their dependencies allow.</summary>
+    private void RecomputeThese(HashSet<(int, CellRef)> cells)
+    {
+        if (cells.Count == 0) return;
+        var byName = new Dictionary<string, int>(StringComparer.CurrentCultureIgnoreCase);
+        for (int i = 0; i < _sheets.Count; i++) byName[_sheets[i].Name] = i;
+
+        var formulas = new List<(int Sheet, CellRef Ref, RefRange[] Reads)>();
+        for (int i = 0; i < _sheets.Count; i++)
+            foreach (var (reference, formula) in _sheets[i].Formulas())
+                formulas.Add((i, reference, Refs.Parse(formula).ToArray()));
+
+        Recompute(cells, formulas, byName);
+    }
+
+    /// <summary>
+    /// Work out the totals that just went stale, so the sheet shows numbers rather than the formulas behind them.
+    /// A formula is only computed once everything it reads has been, and anything Plain does not fully understand is
+    /// left with no value at all: Excel recalculates the file when it opens it, and no number beats a wrong one.
+    /// </summary>
+    private void Recompute(HashSet<(int, CellRef)> stale,
+                           List<(int Sheet, CellRef Ref, RefRange[] Reads)> formulas,
+                           Dictionary<string, int> byName)
+    {
+        if (stale.Count == 0) return;
+
+        var pending = formulas.Where(f => stale.Contains((f.Sheet, f.Ref))).ToList();
+        if (pending.Count == 0) return;
+
+        var known = new Dictionary<(int, CellRef), Value>();
+        var waiting = new HashSet<(int, CellRef)>(pending.Select(f => (f.Sheet, f.Ref)));
+
+        Value Look(int from, string? sheetName, CellRef cell)
+        {
+            int sheet = from;
+            if (sheetName is not null && !byName.TryGetValue(sheetName, out sheet)) return Value.Blank;
+            if (known.TryGetValue((sheet, cell), out var found)) return found;
+            return _sheets[sheet].ValueOf(cell);
+        }
+
+        // Each pass settles at least one formula or nothing more can be settled, so this cannot run away.
+        for (int pass = 0; pass < pending.Count + 1 && waiting.Count > 0; pass++)
+        {
+            bool progressed = false;
+            foreach (var (sheet, reference, reads) in pending.ToList())
+            {
+                if (!waiting.Contains((sheet, reference))) continue;
+
+                // Wait until nothing it reads is still to be worked out.
+                bool ready = true;
+                foreach (var range in reads)
+                {
+                    int on = sheet;
+                    if (range.Sheet is not null && !byName.TryGetValue(range.Sheet, out on)) continue;
+                    foreach (var still in waiting)
+                        if (still.Item1 == on && range.Contains(still.Item2) && still != (sheet, reference)) { ready = false; break; }
+                    if (!ready) break;
+                }
+                if (!ready) continue;
+
+                var formula = _sheets[sheet].Read(reference).Formula;
+                waiting.Remove((sheet, reference));
+                progressed = true;
+                if (formula is null) continue;
+
+                if (Formula.TryEvaluate(formula, (name, cell) => Look(sheet, name, cell), out var value))
+                {
+                    known[(sheet, reference)] = value;
+                    _sheets[sheet].WriteCached(reference, value);
+                }
+            }
+            if (!progressed) break;   // what is left reads itself, or reads something that does
+        }
     }
 
     private static bool ReadsAnything(RefRange[] reads, int ownSheet,
@@ -231,9 +308,16 @@ public sealed class Workbook
 
         sheet.ShiftCells(edit, at);
         int adjusted = 0;
-        foreach (var other in _sheets)
-            adjusted += other.AdjustFormulas(edit, at, sheet.Name, ownSheet: other == sheet);
+        var emptied = new HashSet<(int, CellRef)>();
+        for (int i = 0; i < _sheets.Count; i++)
+        {
+            var here = new List<CellRef>();
+            adjusted += _sheets[i].AdjustFormulas(edit, at, sheet.Name, ownSheet: _sheets[i] == sheet, here);
+            foreach (var cell in here) emptied.Add((i, cell));
+        }
 
+        // A formula that had to move still has to show a number, so work the moved ones out again.
+        RecomputeThese(emptied);
         RequestFullRecalculation();
         return adjusted;
     }
@@ -243,6 +327,7 @@ public sealed class Workbook
     {
         ClearStaleCaches();
         foreach (var sheet in _sheets) sheet.Flush();
+        _styles?.Flush();
         if (_sstDirty && _sst is not null) { _pkg.Write("xl/sharedStrings.xml", Xml.ToBytes(_sst)); _sstDirty = false; }
         if (_workbookDirty && _workbookDoc is not null) { _pkg.Write(WorkbookPart, Xml.ToBytes(_workbookDoc)); _workbookDirty = false; }
     }
@@ -475,6 +560,29 @@ public sealed class Sheet
 
     public void Set(string reference, string typed) => Set(CellRef.Parse(reference), typed);
 
+    /// <summary>
+    /// Show the cells the given way: as currency, as a percentage, as a date. The cell keeps everything else about
+    /// how it looks. An empty code puts it back to however the format shows a number with no instructions.
+    /// </summary>
+    public void SetFormat(IEnumerable<CellRef> cells, string code)
+    {
+        foreach (var reference in cells)
+        {
+            var cell = EnsureCell(reference);
+            int current = Xml.Int(cell.Attribute("s"), 0);
+            int style = _book.Styles.WithFormat(current, code);
+            cell.SetAttributeValue("s", style);
+        }
+        _dirty = true;
+    }
+
+    /// <summary>How the cell is shown now, as a format code; empty when it has no instructions.</summary>
+    public string FormatOf(CellRef reference)
+    {
+        var cell = FindCell(reference);
+        return cell is null ? "" : _book.Styles.CodeAt(Xml.Int(cell.Attribute("s"), 0));
+    }
+
     private XElement EnsureCell(CellRef reference)
     {
         var row = FindRow(reference.Row);
@@ -611,7 +719,7 @@ public sealed class Sheet
     }
 
     /// <summary>Rewrite every formula on this sheet so it still means what it meant after a row or column moved.</summary>
-    internal int AdjustFormulas(GridEdit edit, int at, string targetSheet, bool ownSheet)
+    internal int AdjustFormulas(GridEdit edit, int at, string targetSheet, bool ownSheet, List<CellRef>? emptied = null)
     {
         int changed = 0;
         foreach (var row in Data.Elements(D.Sheet + "row"))
@@ -624,10 +732,59 @@ public sealed class Sheet
                 f.Value = adjusted;
                 cell.Elements(D.Sheet + "v").Remove();   // whatever it worked out to is no longer what it means
                 if ((string?)cell.Attribute("t") == "str") cell.Attribute("t")!.Remove();
+                if (CellRef.TryParse((string?)cell.Attribute("r") ?? "", out var where)) emptied?.Add(where);
                 changed++;
             }
         if (changed > 0) _dirty = true;
         return changed;
+    }
+
+    /// <summary>Put a worked-out value beside a formula, the way Excel stores the answer it last calculated.</summary>
+    internal void WriteCached(CellRef reference, Value value)
+    {
+        var cell = FindCell(reference);
+        if (cell is null) return;
+        cell.Elements(D.Sheet + "v").Remove();
+        cell.Attribute("t")?.Remove();
+
+        switch (value.Kind)
+        {
+            case Value.Sort.Number:
+                if (!double.IsFinite(value.Number)) return;   // nothing sensible to store
+                cell.Add(new XElement(D.Sheet + "v", value.Number.ToString("R", CultureInfo.InvariantCulture)));
+                break;
+            case Value.Sort.Bool:
+                cell.SetAttributeValue("t", "b");
+                cell.Add(new XElement(D.Sheet + "v", value.Number != 0 ? "1" : "0"));
+                break;
+            case Value.Sort.Error:
+                cell.SetAttributeValue("t", "e");
+                cell.Add(new XElement(D.Sheet + "v", value.Text));
+                break;
+            case Value.Sort.Text:
+                cell.SetAttributeValue("t", "str");
+                cell.Add(new XElement(D.Sheet + "v", value.Text));
+                break;
+            default:
+                return;   // blank: leave it with no value, which is what "not worked out" looks like
+        }
+        _dirty = true;
+    }
+
+    /// <summary>What this cell stands for when a formula reads it.</summary>
+    internal Value ValueOf(CellRef reference)
+    {
+        var cell = Read(reference);
+        return cell.Kind switch
+        {
+            CellKind.Empty => Value.Blank,
+            CellKind.Boolean => Value.Of(cell.Raw == "1"),
+            CellKind.Error => Value.Error(cell.Raw),
+            CellKind.Text => Value.Of(cell.Display),
+            _ => double.TryParse(cell.Raw, NumberStyles.Float, CultureInfo.InvariantCulture, out var n)
+                 ? Value.Of(n)
+                 : cell.Raw.Length == 0 ? Value.Blank : Value.Of(cell.Raw),
+        };
     }
 
     internal void Flush()

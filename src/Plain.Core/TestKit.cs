@@ -45,6 +45,8 @@ public static class SelfTest
         ("dialect", DialectSuite.Run),
         ("replace", ReplaceSuite.Run),
         ("grid", GridSuite.Run),
+        ("formula", FormulaSuite.Run),
+        ("annotations", AnnotationsSuite.Run),
         ("sheet", SheetSuite.Run),
         ("doc", DocSuite.Run),
         ("deck", DeckSuite.Run),

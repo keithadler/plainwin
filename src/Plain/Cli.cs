@@ -20,6 +20,9 @@ public static class Cli
 
     public static bool IsVerb(string arg) => Verbs.Contains(arg, StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>Was this switch given? Switches are compared exactly, so --case is not --Case.</summary>
+    private static bool Flag(IReadOnlyList<string> args, string name) => args.Contains(name);
+
     private const string Usage = """
         Plain for Windows - opens Word, Excel and PowerPoint files, edits the basics,
         and never damages what it doesn't understand.
@@ -279,7 +282,7 @@ public static class Cli
                     int touched = file.Workbook.Apply(sheet, edit, at);
                     var (total, edited, kept) = file.Counts();
                     file.Save();
-                    o.WriteLine($"{how}ed {verb} {rest[2]} on {sheet.Name}: {touched} formula{(touched == 1 ? "" : "s")} adjusted, {edited} of {total} parts rewritten, {kept} kept byte for byte");
+                    o.WriteLine($"{(how == "insert" ? "inserted" : "deleted")} {verb} {rest[2]} on {sheet.Name}: {touched} formula{(touched == 1 ? "" : "s")} adjusted, {edited} of {total} parts rewritten, {kept} kept byte for byte");
                     return 0;
                 }
 

@@ -5,6 +5,8 @@ using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Media;
 using Plain.Core;
+// Plain.Core has its own Grid, for rows and columns of a sheet; in this file Grid means the WPF panel.
+using Grid = System.Windows.Controls.Grid;
 using Search = Plain.Core.Search;
 
 namespace Plain;

@@ -58,12 +58,12 @@ public static class SheetSuite
             s.Check("the workbook asks Excel to recalculate",
                     again.Package.ReadText("xl/workbook.xml").Contains("fullCalcOnLoad"));
 
-            // A cached total that depends on an edited cell would be a wrong number on screen, so it must be gone.
-            s.Equal("a total that reads the edited cell loses its cached value", "", s2.Read("B5").Raw);
+            // A total that reads an edited cell must show the new number, not the old one and not the formula.
+            s.Equal("a total that reads the edited cell is worked out again", "964700", s2.Read("B5").Raw);
             s.Check("that total keeps its formula", (s2.Read("B5").Formula ?? "").Contains("SUM"));
             s.Equal("a formula's own text survives", "=B2*2", s2.Read("F2").Formula);
-            s.Equal("a formula with no cached value shows as the formula", "=B2*2", s2.Read("F2").Display);
-            s.Equal("a formula cell with no value has no raw value", "", s2.Read("F2").Raw);
+            s.Equal("a new formula is worked out", "1000000", s2.Read("F2").Raw);
+            s.Equal("and shows its number, not itself", "1000000", s2.Read("F2").Display);
             s.Check("a plain number keeps its value", s2.Read("C2").Raw.Length > 0);
 
             // Cells must stay in ascending order or Excel calls the file damaged.
@@ -103,7 +103,50 @@ public static class SheetSuite
         }
 
         Staleness(s);
+        Formatting(s);
         return s;
+    }
+
+    /// <summary>Changing how a cell shows its number must not change the number, or anything else about the cell.</summary>
+    private static void Formatting(Suite s)
+    {
+        var work = Fixtures.Copy("sheet.xlsx");
+        try
+        {
+            var w = new Workbook(OpcPackage.Open(work));
+            var sheet = w.Sheets[0];
+            string raw = sheet.Read("B2").Raw;
+
+            sheet.SetFormat(new[] { CellRef.Parse("B2") }, "0.00%");
+            s.Equal("the stored number is untouched", raw, sheet.Read("B2").Raw);
+            s.Check("the cell now shows as a percentage", sheet.Read("B2").Display.EndsWith("%"));
+            s.Equal("and reports its format", "0.00%", sheet.FormatOf(CellRef.Parse("B2")));
+
+            w.Save(work);
+            var again = new Workbook(OpcPackage.Open(work)).Sheets[0];
+            s.Equal("the format survives a save", "0.00%", again.FormatOf(CellRef.Parse("B2")));
+            s.Equal("and so does the number", raw, again.Read("B2").Raw);
+            s.Check("a neighbouring cell is unaffected", !again.Read("C2").Display.EndsWith("%"));
+
+            // Asking for the same format twice must not grow the style table for ever.
+            var w2 = new Workbook(OpcPackage.Open(work));
+            var s2 = w2.Sheets[0];
+            s2.SetFormat(new[] { CellRef.Parse("C2") }, "0.00%");
+            s2.SetFormat(new[] { CellRef.Parse("D2") }, "0.00%");
+            s.Equal("cells asking for one format share one style",
+                    s2.FormatOf(CellRef.Parse("C2")), s2.FormatOf(CellRef.Parse("D2")));
+
+            // Putting it back to General.
+            s2.SetFormat(new[] { CellRef.Parse("C2") }, "");
+            s.Equal("clearing the format clears it", "", s2.FormatOf(CellRef.Parse("C2")));
+
+            // A whole block at once, which is how anyone actually formats a column.
+            var block = Enumerable.Range(2, 3).Select(r => new CellRef(2, r)).ToList();
+            s2.SetFormat(block, "#,##0");
+            s.Check("every cell in the block took the format",
+                    block.All(c => s2.FormatOf(c) == "#,##0"));
+        }
+        finally { try { File.Delete(work); } catch { } }
     }
 
     /// <summary>Only the totals that read an edited cell may lose their value; the rest must keep theirs.</summary>
@@ -122,7 +165,7 @@ public static class SheetSuite
             w.Save(work);
 
             var again = new Workbook(OpcPackage.Open(work)).Sheets[0];
-            s.Equal("the total over the edited column is cleared", "", again.Read("B5").Raw);
+            s.Equal("the total over the edited column is worked out again", "964700", again.Read("B5").Raw);
             s.Equal("a total over another column keeps its value", cachedC5, again.Read("C5").Raw);
             s.Equal("a second untouched total keeps its value", cachedD5, again.Read("D5").Raw);
             s.Equal("a formula in an untouched row keeps its value", cachedE3, again.Read("E3").Raw);
@@ -147,8 +190,8 @@ public static class SheetSuite
             w2.Save(chain);
 
             var after = new Workbook(OpcPackage.Open(chain)).Sheets[0];
-            s.Equal("a formula reading the edit is cleared", "", after.Read("H2").Raw);
-            s.Equal("a formula reading that formula is cleared too", "", after.Read("H3").Raw);
+            s.Equal("a formula reading the edit is worked out", "40", after.Read("H2").Raw);
+            s.Equal("a formula reading that formula follows it", "41", after.Read("H3").Raw);
             s.Equal("the edited value itself is kept", "20", after.Read("H1").Raw);
         }
         finally { try { File.Delete(chain); } catch { } }
@@ -167,7 +210,8 @@ public static class SheetSuite
             w2.Save(multi);
 
             var after = new Workbook(OpcPackage.Open(multi)).Sheets[0];
-            s.Equal("a cross-sheet total over the edit is cleared", "", after.Read("D1").Raw);
+            s.Check("a cross-sheet total over the edit is worked out again",
+                    after.Read("D1").Raw.Length > 0 && after.Read("D1").Raw != "0");
             s.Check("a cross-sheet total over another sheet is untouched", after.Read("D2").Formula is not null);
         }
         finally { try { File.Delete(multi); } catch { } }
