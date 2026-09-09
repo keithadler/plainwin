@@ -3,10 +3,10 @@ using System.Xml.Linq;
 namespace Plain.Core;
 
 /// <summary>One comment somebody left on a document, spreadsheet or deck.</summary>
-public sealed record Note(string Author, string When, string Text, string Where);
+public sealed record Note(string Author, string When, string Text, string Where, int Index = 0);
 
 /// <summary>One tracked change: text somebody added or took out, and who.</summary>
-public sealed record Revision(bool Inserted, string Author, string When, string Text);
+public sealed record Revision(bool Inserted, string Author, string When, string Text, int Index = 0);
 
 /// <summary>
 /// What other people wrote in the margins. Plain preserves comments and tracked changes whether or not it shows
@@ -41,7 +41,8 @@ public static class Annotations
                 (string?)comment.Attribute(d.Word + "author") ?? "",
                 When((string?)comment.Attribute(d.Word + "date")),
                 text,
-                "comment"));
+                "comment",
+                notes.Count));
         }
         return notes;
     }
@@ -121,7 +122,8 @@ public static class Annotations
             revisions.Add(new Revision(inserted,
                 (string?)change.Attribute(d.Word + "author") ?? "",
                 When((string?)change.Attribute(d.Word + "date")),
-                text));
+                text,
+                revisions.Count));
         }
         return revisions;
     }
@@ -139,30 +141,89 @@ public static class Annotations
     /// what "final" means, and it is what a document needs to be before it goes to somebody who should not see the
     /// argument that produced it. Returns how many changes were settled.
     /// </summary>
-    public static int AcceptRevisions(PlainFile file)
+    public static int AcceptRevisions(PlainFile file) => Settle(file, accept: true, only: null);
+
+    /// <summary>
+    /// Turn down every tracked change: put back what was struck out, take out what was added. Reviewing mark-up is
+    /// half saying no, and an editor that could only ever say yes was no use to anyone negotiating anything.
+    /// </summary>
+    public static int RejectRevisions(PlainFile file) => Settle(file, accept: false, only: null);
+
+    /// <summary>Settle one change, by its place in the list <see cref="Revisions"/> gives back.</summary>
+    public static bool SettleRevision(PlainFile file, int index, bool accept) => Settle(file, accept, index) > 0;
+
+    private static int Settle(PlainFile file, bool accept, int? only)
     {
-        if (file.Kind != FileKind.Document) return 0;
+        if (file.Kind != FileKind.Document || !file.Package.Has(Document.BodyPart)) return 0;
         var doc = Xml.Parse(file.Package.Read(Document.BodyPart));
         var d = Dialect.Of(doc.Root!);
-        int settled = 0;
+        int settled = 0, seen = 0;
 
-        foreach (var deleted in doc.Descendants(d.Word + "del").ToList()) { deleted.Remove(); settled++; }
-
-        foreach (var inserted in doc.Descendants(d.Word + "ins").ToList())
+        // Walk in document order, the same order Revisions reports, so an index means the same thing to both.
+        foreach (var change in doc.Descendants().Where(e => e.Name == d.Word + "ins" || e.Name == d.Word + "del").ToList())
         {
-            // Keep the runs, lose the wrapper that marked them as new.
-            var kept = inserted.Elements().ToList();
-            foreach (var run in kept) run.Remove();
-            inserted.ReplaceWith(kept);
+            bool inserted = change.Name.LocalName == "ins";
+            string text = string.Concat(change.Descendants()
+                .Where(e => e.Name == d.Word + (inserted ? "t" : "delText")).Select(e => e.Value));
+            if (text.Length == 0) continue;      // Revisions skips these, so the numbering must too
+
+            int at = seen++;
+            if (only is { } wanted && at != wanted) continue;
+
+            bool keep = inserted == accept;
+            if (!keep) { change.Remove(); }
+            else
+            {
+                var kept = change.Elements().ToList();
+                foreach (var run in kept) run.Remove();
+                // Text that was struck out is stored as delText; putting it back makes it ordinary text again.
+                if (!inserted)
+                    foreach (var deleted in kept.SelectMany(r => r.Elements(d.Word + "delText").ToList()))
+                        deleted.ReplaceWith(new XElement(d.Word + "t",
+                            new XAttribute(XNamespace.Xml + "space", "preserve"), deleted.Value));
+                change.ReplaceWith(kept);
+            }
             settled++;
+            if (only is not null) break;
         }
 
-        // A paragraph mark can itself be marked as changed; that mark goes too.
-        foreach (var mark in doc.Descendants(d.Word + "rPr").Elements(d.Word + "ins").ToList()) mark.Remove();
-        foreach (var mark in doc.Descendants(d.Word + "rPr").Elements(d.Word + "del").ToList()) mark.Remove();
+        if (only is null)
+        {
+            // A paragraph mark can itself be marked as changed; that mark goes too.
+            foreach (var mark in doc.Descendants(d.Word + "rPr").Elements(d.Word + "ins").ToList()) mark.Remove();
+            foreach (var mark in doc.Descendants(d.Word + "rPr").Elements(d.Word + "del").ToList()) mark.Remove();
+        }
 
         if (settled > 0) file.Package.Write(Document.BodyPart, Xml.ToBytes(doc));
         return settled;
+    }
+
+    /// <summary>Take out one comment, by its place in the list <see cref="Comments"/> gives back.</summary>
+    public static bool RemoveComment(PlainFile file, int index)
+    {
+        if (file.Kind != FileKind.Document || !file.Package.Has("word/comments.xml")) return false;
+        var comments = Xml.Parse(file.Package.Read("word/comments.xml"));
+        var cd = Dialect.Of(comments.Root!);
+        var all = comments.Root!.Elements(cd.Word + "comment").ToList();
+        if (index < 0 || index >= all.Count) return false;
+
+        string? id = (string?)all[index].Attribute(cd.Word + "id");
+        all[index].Remove();
+        file.Package.Write("word/comments.xml", Xml.ToBytes(comments));
+
+        if (id is not null)
+        {
+            // Take the marks that pointed at it out of the document, and leave the others alone.
+            var body = Xml.Parse(file.Package.Read(Document.BodyPart));
+            var d = Dialect.Of(body.Root!);
+            foreach (var name in new[] { "commentRangeStart", "commentRangeEnd", "commentReference" })
+                foreach (var mark in body.Descendants(d.Word + name).ToList())
+                    if ((string?)mark.Attribute(d.Word + "id") == id) mark.Remove();
+            foreach (var run in body.Descendants(d.Word + "r").ToList())
+                if (!run.Elements().Any(e => e.Name != d.Word + "rPr")) run.Remove();
+            file.Package.Write(Document.BodyPart, Xml.ToBytes(body));
+        }
+        return true;
     }
 
     /// <summary>

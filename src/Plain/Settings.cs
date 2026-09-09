@@ -15,6 +15,32 @@ public sealed class Settings
     public double TextScale { get; set; } = 1.0;
     public bool ShowPreserved { get; set; } = true;
 
+    /// <summary>How the reading surface looks. These are settings, not features: nobody has to open them.</summary>
+    public string ReadingFont { get; set; } = "";       // empty means the one the app ships with
+    public string PaperColour { get; set; } = "";       // empty means follow the theme
+    public double LineSpacing { get; set; } = 1.0;
+    public double TextWidth { get; set; } = 860;        // how wide a column of text is allowed to get
+
+    /// <summary>Keep a copy of unsaved work, so a machine that dies does not take the afternoon with it.</summary>
+    public bool KeepRecovery { get; set; } = true;
+
+    /// <summary>Papers people asked for by name, plus following the theme.</summary>
+    public static readonly (string Name, string Hex)[] Papers =
+    {
+        ("Follow the theme", ""),
+        ("Cream", "#FBF3E4"),
+        ("Pale grey", "#F1F1EE"),
+        ("Pale blue", "#EAF1F7"),
+        ("Pale green", "#EDF4EC"),
+        ("Pale pink", "#FAEFF1"),
+        ("White", "#FFFFFF"),
+    };
+
+    public static readonly double[] Spacings = { 1.0, 1.15, 1.3, 1.5, 1.8, 2.0 };
+
+    [JsonIgnore]
+    public static string RecoveryFolder => Path.Combine(Folder, "recovery");
+
     [JsonIgnore]
     public static string Folder =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Plain for Windows");

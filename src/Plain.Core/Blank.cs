@@ -112,11 +112,13 @@ public static class Blank
             ("[Content_Types].xml", B(ContentTypeHead +
                 $"<Override PartName=\"/word/document.xml\" ContentType=\"{ml}.document.main+xml\"/>" +
                 $"<Override PartName=\"/word/styles.xml\" ContentType=\"{ml}.styles+xml\"/>" +
+                $"<Override PartName=\"/word/numbering.xml\" ContentType=\"{ml}.numbering+xml\"/>" +
                 "</Types>")),
             ("_rels/.rels", RootRels("word/document.xml")),
             ("word/_rels/document.xml.rels", B(
                 $"<Relationships xmlns=\"{RelNs}\">" +
                 $"<Relationship Id=\"rId1\" Type=\"{DocRel}/styles\" Target=\"styles.xml\"/>" +
+                $"<Relationship Id=\"rId2\" Type=\"{DocRel}/numbering\" Target=\"numbering.xml\"/>" +
                 "</Relationships>")),
             // One empty paragraph, so there is a line to start typing on, and an A4 page for whatever opens it next.
             ("word/document.xml", B(
@@ -133,8 +135,26 @@ public static class Blank
                 Heading(1, 32) + Heading(2, 26) + Heading(3, 24) +
                 "</w:styles>")),
         };
+        // One bulleted and one numbered definition, so a document Plain makes can take a list.
+        parts.Add(("word/numbering.xml", B(
+            $"<w:numbering xmlns:w=\"{w}\">" +
+            List(0, "bullet", "\uF0B7", "Symbol") +
+            List(1, "decimal", "%1.", "") +
+            "<w:num w:numId=\"1\"><w:abstractNumId w:val=\"0\"/></w:num>" +
+            "<w:num w:numId=\"2\"><w:abstractNumId w:val=\"1\"/></w:num>" +
+            "</w:numbering>")));
+
         parts.AddRange(Properties("Plain for Windows"));
         return PackageBuilder.Build(parts);
+
+        static string List(int id, string format, string text, string font) =>
+            $"<w:abstractNum w:abstractNumId=\"{id}\"><w:multiLevelType w:val=\"hybridMultilevel\"/>" +
+            "<w:lvl w:ilvl=\"0\"><w:start w:val=\"1\"/>" +
+            $"<w:numFmt w:val=\"{format}\"/><w:lvlText w:val=\"{System.Security.SecurityElement.Escape(text)}\"/>" +
+            "<w:lvlJc w:val=\"left\"/>" +
+            "<w:pPr><w:ind w:left=\"720\" w:hanging=\"360\"/></w:pPr>" +
+            (font.Length > 0 ? $"<w:rPr><w:rFonts w:ascii=\"{font}\" w:hAnsi=\"{font}\" w:hint=\"default\"/></w:rPr>" : "") +
+            "</w:lvl></w:abstractNum>";
 
         static string Heading(int level, int halfPoints) =>
             $"<w:style w:type=\"paragraph\" w:styleId=\"Heading{level}\"><w:name w:val=\"heading {level}\"/>" +

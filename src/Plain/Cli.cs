@@ -16,7 +16,7 @@ public static class Cli
     public const string Version = "1.0.0";
 
     private static readonly string[] Verbs =
-        { "info", "parts", "text", "cells", "get", "set", "new", "replace", "row", "column", "props", "roundtrip", "selftest", "version", "help", "--help", "-h", "--version" };
+        { "info", "parts", "text", "cells", "get", "set", "new", "replace", "row", "column", "props", "pdf", "csv", "import", "count", "images", "apply", "changes", "comments", "roundtrip", "selftest", "version", "help", "--help", "-h", "--version" };
 
     public static bool IsVerb(string arg) => Verbs.Contains(arg, StringComparer.OrdinalIgnoreCase);
 
@@ -40,6 +40,15 @@ public static class Cli
           plain column <file> insert|delete <ref> [sheet] the same for a column, named A, B, C
           plain props <file> [--set Name=value]... [--strip]
                                             show, change or clear what the file says about itself
+          plain pdf <file> [out.pdf]       write it out as a PDF
+          plain csv <file> [sheet] [--formatted]   write a sheet out as comma separated values;
+                                            numbers come out as numbers unless you ask for the screen
+          plain import <file> <csv> [at]   read a csv into a sheet, starting at a cell (default A1)
+          plain count <file>               words, characters and paragraphs
+          plain images <file> [--save dir] the pictures inside it, and optionally write them out
+          plain changes <file> [--accept N|--reject N|--accept-all|--reject-all]
+          plain comments <file> [--remove N|--remove-all]
+          plain apply <file> --script <s>  run many changes in one go; - reads them from the input
           plain roundtrip <file>...        prove a save changes nothing: byte compares the result
           plain selftest [suite]           run the built-in checks
           plain version
@@ -334,6 +343,161 @@ public static class Cli
                     return 0;
                 }
 
+                case "pdf":
+                {
+                    if (rest.Count < 1) { err.WriteLine("pdf <file> [out.pdf]"); return 64; }
+                    var file = PlainFile.Open(rest[0]);
+                    var to = rest.Count > 1 ? rest[1] : Path.ChangeExtension(file.Path, ".pdf");
+                    var result = PdfExport.Build(file, Path.GetFileNameWithoutExtension(file.Path));
+                    File.WriteAllBytes(to, result.Bytes);
+                    o.WriteLine($"wrote {Path.GetFileName(to)}: {result.Pages} page{(result.Pages == 1 ? "" : "s")}, {result.Bytes.Length / 1024} KB");
+                    if (result.Warning is not null) err.WriteLine(result.Warning);
+                    return result.Warning is null ? 0 : 1;
+                }
+
+                case "csv":
+                {
+                    if (rest.Count < 1) { err.WriteLine("csv <file> [sheet]"); return 64; }
+                    var file = PlainFile.Open(rest[0]);
+                    if (file.Workbook is null) { err.WriteLine("csv only works on a spreadsheet."); return 2; }
+                    var sheet = rest.Count > 1
+                        ? file.Workbook.Sheets.FirstOrDefault(x => x.Name.Equals(rest[1], StringComparison.OrdinalIgnoreCase))
+                        : file.Workbook.Sheets[0];
+                    if (sheet is null) { err.WriteLine($"no sheet called \"{rest[1]}\"."); return 2; }
+                    o.Write(Csv.Write(sheet, ',', Flag(args, "--formatted")));
+                    return 0;
+                }
+
+                case "import":
+                {
+                    if (rest.Count < 2) { err.WriteLine("import <file> <csv> [at]"); return 64; }
+                    var file = PlainFile.Open(rest[0]);
+                    if (file.Workbook is null) { err.WriteLine("import only works on a spreadsheet."); return 2; }
+                    var at = rest.Count > 2 ? rest[2] : "A1";
+                    if (!CellRef.TryParse(at, out var corner)) { err.WriteLine($"\"{at}\" is not a cell reference."); return 64; }
+                    var text = rest[1] == "-" ? Console.In.ReadToEnd() : File.ReadAllText(rest[1]);
+                    int written = Csv.Into(file.Workbook.Sheets[0], text, corner);
+                    var (total, edited, kept) = file.Counts();
+                    file.Save();
+                    o.WriteLine($"read {written} value{(written == 1 ? "" : "s")} into {file.Workbook.Sheets[0].Name} from {corner}; {edited} of {total} parts rewritten, {kept} kept byte for byte");
+                    return 0;
+                }
+
+                case "count":
+                {
+                    if (rest.Count < 1) { err.WriteLine("count <file>"); return 64; }
+                    var tally = Counts.Of(PlainFile.Open(rest[0]));
+                    if (json) { o.WriteLine(JsonSerializer.Serialize(tally, new JsonSerializerOptions { WriteIndented = true })); return 0; }
+                    o.WriteLine($"{tally.Words,10:N0}  words");
+                    o.WriteLine($"{tally.Characters,10:N0}  characters");
+                    o.WriteLine($"{tally.CharactersWithoutSpaces,10:N0}  characters without spaces");
+                    o.WriteLine($"{tally.Paragraphs,10:N0}  paragraphs");
+                    return 0;
+                }
+
+                case "images":
+                {
+                    if (rest.Count < 1) { err.WriteLine("images <file> [--save <dir>]"); return 64; }
+                    var file = PlainFile.Open(rest[0]);
+                    var pictures = Media.In(file);
+                    if (pictures.Count == 0) { o.WriteLine("no pictures in this file"); return 1; }
+
+                    string? into = null;
+                    for (int i = 0; i < args.Length - 1; i++) if (args[i] == "--save") into = args[i + 1];
+
+                    foreach (var picture in pictures)
+                    {
+                        if (into is null) o.WriteLine($"{picture.Size,10}  {picture.Kind,-18}{picture.Part}");
+                        else o.WriteLine($"wrote {Media.SaveTo(picture, into)}");
+                    }
+                    return 0;
+                }
+
+                case "changes":
+                {
+                    if (rest.Count < 1) { err.WriteLine("changes <file> [--accept N|--reject N|--accept-all|--reject-all]"); return 64; }
+                    var file = PlainFile.Open(rest[0]);
+                    int? one = null; bool accept = true, act = false;
+                    for (int i = 0; i < args.Length; i++)
+                    {
+                        if (args[i] is "--accept" or "--reject")
+                        {
+                            accept = args[i] == "--accept"; act = true;
+                            if (i + 1 < args.Length && int.TryParse(args[i + 1], out var n)) one = n;
+                        }
+                        else if (args[i] is "--accept-all" or "--reject-all") { accept = args[i] == "--accept-all"; act = true; }
+                    }
+
+                    if (!act)
+                    {
+                        var list = Annotations.Revisions(file);
+                        if (list.Count == 0) { o.WriteLine("no tracked changes"); return 1; }
+                        for (int i = 0; i < list.Count; i++)
+                            o.WriteLine($"{i,3}  {(list[i].Inserted ? "added     " : "struck out")}  {list[i].Author,-20}{list[i].Text}");
+                        return 0;
+                    }
+
+                    int settled = one is { } index
+                        ? (Annotations.SettleRevision(file, index, accept) ? 1 : 0)
+                        : accept ? Annotations.AcceptRevisions(file) : Annotations.RejectRevisions(file);
+                    if (settled == 0) { err.WriteLine("nothing to settle"); return 1; }
+                    file.Save();
+                    o.WriteLine($"{(accept ? "accepted" : "turned down")} {settled} change{(settled == 1 ? "" : "s")}");
+                    return 0;
+                }
+
+                case "comments":
+                {
+                    if (rest.Count < 1) { err.WriteLine("comments <file> [--remove N|--remove-all]"); return 64; }
+                    var file = PlainFile.Open(rest[0]);
+                    int? one = null; bool all = Flag(args, "--remove-all");
+                    for (int i = 0; i < args.Length - 1; i++)
+                        if (args[i] == "--remove" && int.TryParse(args[i + 1], out var n)) one = n;
+
+                    if (one is null && !all)
+                    {
+                        var list = Annotations.Comments(file);
+                        if (list.Count == 0) { o.WriteLine("no comments"); return 1; }
+                        for (int i = 0; i < list.Count; i++)
+                            o.WriteLine($"{i,3}  {list[i].Author,-20}{list[i].When,-14}{list[i].Text}");
+                        return 0;
+                    }
+
+                    int removed = one is { } index ? (Annotations.RemoveComment(file, index) ? 1 : 0)
+                                                   : Annotations.RemoveComments(file);
+                    if (removed == 0) { err.WriteLine("nothing to remove"); return 1; }
+                    file.Save();
+                    o.WriteLine($"removed {removed} comment{(removed == 1 ? "" : "s")}");
+                    return 0;
+                }
+
+                case "apply":
+                {
+                    if (rest.Count < 1) { err.WriteLine("apply <file> --script <script|-> "); return 64; }
+                    string? script = null;
+                    for (int i = 0; i < args.Length - 1; i++) if (args[i] == "--script") script = args[i + 1];
+                    if (script is null) { err.WriteLine("apply needs --script <file>, or --script - to read them from the input"); return 64; }
+
+                    var lines = (script == "-" ? Console.In.ReadToEnd() : File.ReadAllText(script))
+                        .Split('\n').Select(l => l.TrimEnd('\r').Trim())
+                        .Where(l => l.Length > 0 && !l.StartsWith('#')).ToList();
+
+                    var file = PlainFile.Open(rest[0]);
+                    int done = 0;
+                    foreach (var line in lines)
+                    {
+                        var result = Apply(file, line, err);
+                        if (result != 0) { err.WriteLine($"stopped at: {line}"); return result; }
+                        done++;
+                    }
+                    if (Flag(args, "--dry-run")) { o.WriteLine($"{done} change{(done == 1 ? "" : "s")} understood; nothing written"); return 0; }
+
+                    var (total, edited, kept) = file.Counts();
+                    file.Save();
+                    o.WriteLine($"{done} change{(done == 1 ? "" : "s")} applied in one pass; {edited} of {total} parts rewritten, {kept} kept byte for byte");
+                    return 0;
+                }
+
                 case "roundtrip":
                 {
                     if (rest.Count < 1) { err.WriteLine("roundtrip <file>..."); return 64; }
@@ -367,6 +531,91 @@ public static class Cli
         catch (DirectoryNotFoundException) { err.WriteLine("No folder at that path."); return 2; }
         catch (UnauthorizedAccessException) { err.WriteLine("Windows would not let Plain read or write that file."); return 2; }
         catch (IOException ex) { err.WriteLine($"The file could not be read or written: {ex.Message}"); return 2; }
+    }
+
+    /// <summary>
+    /// One line of a script: the same verbs as the command line, without naming the file each time. Four hundred
+    /// changes in one process rather than four hundred processes, which is what made this worth having.
+    /// </summary>
+    private static int Apply(PlainFile file, string line, TextWriter err)
+    {
+        var parts = Split(line);
+        if (parts.Count == 0) return 0;
+        string verb = parts[0].ToLowerInvariant();
+
+        try
+        {
+            switch (verb)
+            {
+                case "set" when parts.Count >= 3:
+                {
+                    string value = string.Join(' ', parts.Skip(2));
+                    if (file.Workbook is not null)
+                    {
+                        if (!CellRef.TryParse(parts[1], out var cell)) { err.WriteLine($"\"{parts[1]}\" is not a cell."); return 64; }
+                        file.Workbook.Sheets[0].Set(cell, value);
+                        return 0;
+                    }
+                    if (file.Document is not null && int.TryParse(parts[1], out var block))
+                    {
+                        file.Document.SetText(block, value);
+                        return 0;
+                    }
+                    err.WriteLine("set wants a cell on a spreadsheet or a block number on a document.");
+                    return 64;
+                }
+
+                case "replace" when parts.Count >= 3:
+                    Replace.InFile(file, parts[1], parts[2], new Replace.Options());
+                    return 0;
+
+                case "row" or "column" when parts.Count >= 3:
+                {
+                    if (file.Workbook is null) { err.WriteLine($"{verb} only works on a spreadsheet."); return 2; }
+                    string how = parts[1].ToLowerInvariant();
+                    int at;
+                    if (verb == "row") { if (!int.TryParse(parts[2], out at)) { err.WriteLine("a row is a number."); return 64; } }
+                    else { if (!CellRef.TryParse(parts[2] + "1", out var c)) { err.WriteLine("a column is a letter."); return 64; } at = c.Column; }
+                    var edit = (verb, how) switch
+                    {
+                        ("row", "insert") => GridEdit.InsertRow, ("row", _) => GridEdit.DeleteRow,
+                        (_, "insert") => GridEdit.InsertColumn, _ => GridEdit.DeleteColumn,
+                    };
+                    file.Workbook.Apply(file.Workbook.Sheets[0], edit, at);
+                    return 0;
+                }
+
+                case "props" when parts.Count >= 2:
+                {
+                    if (parts[1] == "--strip") { file.Properties.Strip(); return 0; }
+                    int eq = parts[1].IndexOf('=');
+                    if (eq <= 0) { err.WriteLine("props wants Name=value or --strip."); return 64; }
+                    if (!file.Properties.Set(parts[1][..eq], parts[1][(eq + 1)..])) { err.WriteLine($"no property called \"{parts[1][..eq]}\"."); return 64; }
+                    return 0;
+                }
+
+                default:
+                    err.WriteLine($"\"{verb}\" is not something a script can do.");
+                    return 64;
+            }
+        }
+        catch (Exception ex) { err.WriteLine(ex.Message); return 2; }
+    }
+
+    /// <summary>Split a script line, letting quotes hold a value with spaces in it together.</summary>
+    private static List<string> Split(string line)
+    {
+        var parts = new List<string>();
+        var built = new System.Text.StringBuilder();
+        bool quoted = false;
+        foreach (char c in line)
+        {
+            if (c == '"') { quoted = !quoted; continue; }
+            if (c == ' ' && !quoted) { if (built.Length > 0) { parts.Add(built.ToString()); built.Clear(); } continue; }
+            built.Append(c);
+        }
+        if (built.Length > 0) parts.Add(built.ToString());
+        return parts;
     }
 
     private static string Describe(FileKind kind) => kind switch

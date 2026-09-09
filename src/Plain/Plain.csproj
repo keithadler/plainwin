@@ -49,6 +49,8 @@
     <Compile Remove="Screenshots.cs" />
     <Compile Remove="Settings.cs" />
     <Compile Remove="Printing.cs" />
+    <Compile Remove="Recovery.cs" />
+    <Compile Remove="ReadingSettings.xaml.cs" />
     <Compile Remove="App.xaml.cs" />
     <Page Remove="**/*.xaml" />
     <ApplicationDefinition Remove="**/*.xaml" />

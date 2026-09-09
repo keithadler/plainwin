@@ -12,6 +12,8 @@ The window: one command row of six controls, a formula bar for spreadsheets, a p
 
 Files written with the strict ISO namespaces, which Excel offers as "Strict Open XML", are read as well as the usual transitional ones, and an edit to one keeps it strict. A workbook whose sheets Plain cannot find, or a document whose text it cannot find, is now refused with a sentence instead of opening to an empty window.
 
+A second round of user panels, ten more kinds of person, and the ten things they most needed: PDF export, tracked changes one at a time, unsaved work kept when the machine stops, many changes in one console pass, the pictures inside a file, bullets and numbered lists, CSV in and out, the lookup and conditional and date functions, reading settings for the font and paper and spacing, and a word count.
+
 The preserved panel says what is in the file rather than listing its innards: several parts of a kind are one line with a count, and bookkeeping is a single closing sentence. On a set of 39 real documents that is 847 rows down to 86, and the busiest file goes from 44 rows to 5.
 
 New makes an empty workbook, document or deck, built part by part from the smallest set the format requires. Two blank files of a kind are the same bytes, which is what lets a test check them. LibreOffice opens all three and reads back what Plain writes into them, including a formula it then computes.

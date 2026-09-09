@@ -48,6 +48,7 @@ public static class SelfTest
         ("formula", FormulaSuite.Run),
         ("annotations", AnnotationsSuite.Run),
         ("format", FormatSuite.Run),
+        ("roundtwo", RoundTwoSuite.Run),
         ("sheet", SheetSuite.Run),
         ("doc", DocSuite.Run),
         ("deck", DeckSuite.Run),

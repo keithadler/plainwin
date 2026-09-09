@@ -114,6 +114,24 @@ Measured on a Windows 11 ARM64 virtual machine, on a sheet of 20,000 rows with a
 
 The checks include a guard against the code going quadratic again, because it was: reading a cell used to scan every row, so the bottom of a large sheet took 286 ms a screen and a search took twenty seconds.
 
+## Paper and pipelines
+
+**PDF** with the PDF button or `plain pdf`. Written here rather than pulled in, using the fonts every reader already has, so nothing is embedded and there is no dependency. It writes the Latin alphabet and says so when a character falls outside it.
+
+**CSV** in and out: `plain csv` writes a sheet, `plain import` reads one in. Numbers come out as numbers rather than as they are dressed on screen, because a comma inside a comma separated file is two fields waiting to happen. A value beginning with `=` arrives as text, so a CSV can never put a formula into your workbook.
+
+**Many changes in one go**: `plain apply <file> --script changes.txt` runs a list of set, replace, row, column and props lines against one file in one pass, instead of one process per cell.
+
+**Word count** sits in the status bar and in `plain count`.
+
+**The pictures inside a file** can be looked at and saved out. Plain never draws them into the document, but somebody about to send a file should be able to see what is in it.
+
+**Tracked changes one at a time**: accept or turn down each one, or all of them, and remove a single comment rather than all of them. Reviewing mark-up is half saying no.
+
+**Reading** settings: choose the typeface, tint the paper, set the line spacing and how wide a line may get. They change nothing in your files, and nobody has to open them.
+
+**Unsaved work is kept** every half minute and offered back if the machine stops. It can be turned off.
+
 ## Help
 
 [docs/Help.html](docs/Help.html) covers the lot: what it edits, what it keeps, the keyboard, and the honest limits.

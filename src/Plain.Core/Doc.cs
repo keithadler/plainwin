@@ -176,6 +176,77 @@ public sealed class Document
         catch { return false; }
     }
 
+    /// <summary>
+    /// Make a block a bullet or a numbered item, or take it out of the list. Word keeps list numbering in its own
+    /// part, so Plain uses a definition the document already has rather than inventing one; a document with no list
+    /// definitions is told so instead of being given a broken list.
+    /// </summary>
+    public bool SetList(int index, bool bulleted, bool on)
+    {
+        var paragraph = _paragraphs[index];
+        var properties = paragraph.Element(D.Word + "pPr");
+
+        if (!on)
+        {
+            properties?.Elements(D.Word + "numPr").Remove();
+            _dirty = true;
+            return true;
+        }
+
+        int? numbering = ListDefinition(bulleted);
+        if (numbering is not { } id) return false;
+
+        if (properties is null) { properties = new XElement(D.Word + "pPr"); paragraph.AddFirst(properties); }
+        properties.Elements(D.Word + "numPr").Remove();
+        var marker = new XElement(D.Word + "numPr",
+            new XElement(D.Word + "ilvl", new XAttribute(D.Word + "val", 0)),
+            new XElement(D.Word + "numId", new XAttribute(D.Word + "val", id)));
+        // The properties element has an order; numPr goes after the style if there is one.
+        var style = properties.Element(D.Word + "pStyle");
+        if (style is not null) style.AddAfterSelf(marker); else properties.AddFirst(marker);
+        _dirty = true;
+        return true;
+    }
+
+    public bool IsList(int index) =>
+        _paragraphs[index].Element(D.Word + "pPr")?.Element(D.Word + "numPr") is not null;
+
+    /// <summary>A list definition of the wanted shape that this document already carries, if it has one.</summary>
+    private int? ListDefinition(bool bulleted)
+    {
+        if (!_pkg.Has("word/numbering.xml")) return null;
+        try
+        {
+            var numbering = Xml.Parse(_pkg.Read("word/numbering.xml"));
+            var d = Dialect.Of(numbering.Root!);
+
+            var abstracts = new Dictionary<string, bool>();   // abstract id -> is it a bullet list
+            foreach (var definition in numbering.Root!.Elements(d.Word + "abstractNum"))
+            {
+                var id = (string?)definition.Attribute(d.Word + "abstractNumId");
+                if (id is null) continue;
+                var level = definition.Elements(d.Word + "lvl")
+                    .FirstOrDefault(l => (string?)l.Attribute(d.Word + "ilvl") == "0");
+                var format = (string?)level?.Element(d.Word + "numFmt")?.Attribute(d.Word + "val") ?? "";
+                abstracts[id] = format.Equals("bullet", StringComparison.OrdinalIgnoreCase);
+            }
+
+            foreach (var use in numbering.Root.Elements(d.Word + "num"))
+            {
+                var id = (string?)use.Attribute(d.Word + "numId");
+                var pointsAt = (string?)use.Element(d.Word + "abstractNumId")?.Attribute(d.Word + "val");
+                if (id is null || pointsAt is null) continue;
+                if (!abstracts.TryGetValue(pointsAt, out var isBullet) || isBullet != bulleted) continue;
+                if (int.TryParse(id, out var number)) return number;
+            }
+        }
+        catch { }
+        return null;
+    }
+
+    /// <summary>Whether this document can do bullets, numbers, both or neither.</summary>
+    public (bool Bullets, bool Numbers) ListsAvailable() => (ListDefinition(true) is not null, ListDefinition(false) is not null);
+
     /// <summary>Which heading styles this document actually has, so only those are offered.</summary>
     public IReadOnlyList<BlockKind> AvailableKinds()
     {

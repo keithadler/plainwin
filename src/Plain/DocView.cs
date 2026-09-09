@@ -63,6 +63,29 @@ public sealed class DocView : Grid, IFindable
 
     private readonly ItemsControl _list;
     private readonly ScrollViewer _scroller;
+
+    /// <summary>Take the reading settings: the face, the paper, the spacing and how wide a line may get.</summary>
+    public void ApplyReading(Settings settings)
+    {
+        _list.MaxWidth = Math.Max(320, settings.TextWidth);
+        _list.FontFamily = settings.ReadingFont.Length == 0
+            ? new FontFamily("Segoe UI Variable Text, Segoe UI")
+            : new FontFamily(settings.ReadingFont);
+
+        var paper = settings.PaperColour;
+        if (paper.Length == 0)
+        {
+            _scroller.Background = App.B("Surface");
+            _list.Foreground = App.B("Ink");
+        }
+        else
+        {
+            _scroller.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString(paper));
+            _list.Foreground = Brushes.Black;   // the papers on offer are all light
+        }
+
+        foreach (var row in _rows) if (row is BlockLine line) line.Spacing = settings.LineSpacing;
+    }
     private IReadOnlyList<Search.BlockHit> _hits = Array.Empty<Search.BlockHit>();
 
     public int FindAll(string term)
@@ -187,6 +210,17 @@ public sealed class DocView : Grid, IFindable
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Text)));
         }
 
+        private double _spacing = 1.0;
+
+        /// <summary>How far apart the lines sit, which for some readers is the difference between reading and not.</summary>
+        public double Spacing
+        {
+            get => _spacing;
+            set { _spacing = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(LineHeight))); }
+        }
+
+        public double LineHeight => FontSize * 1.35 * _spacing;
+
         public double FontSize => Kind switch
         {
             BlockKind.Heading1 => 21,
@@ -217,6 +251,7 @@ public sealed class DocView : Grid, IFindable
             "<DataTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'>" +
             "<TextBox Text='{Binding Text, Mode=TwoWay, UpdateSourceTrigger=LostFocus}' " +
             "         FontSize='{Binding FontSize}' FontWeight='{Binding Weight}' Margin='{Binding Indent}' " +
+            "         TextBlock.LineHeight='{Binding LineHeight}' TextBlock.LineStackingStrategy='BlockLineHeight' " +
             "         BorderThickness='0' Background='Transparent' Padding='2,1' " +
             "         Foreground='{DynamicResource Ink}' TextWrapping='Wrap' AcceptsReturn='False' " +
             "         SpellCheck.IsEnabled='True'/></DataTemplate>");

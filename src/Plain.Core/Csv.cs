@@ -13,7 +13,12 @@ namespace Plain.Core;
 /// </summary>
 public static class Csv
 {
-    public static string Write(Sheet sheet, char separator = ',')
+    /// <summary>
+    /// A sheet as comma separated values. A number comes out as the number, not as it is dressed on screen: a CSV is
+    /// read by a machine, and "412,800" in a comma separated file is two fields waiting to happen. A date is the
+    /// exception, because the number behind a date says nothing to anybody. Ask for formatted and you get the screen.
+    /// </summary>
+    public static string Write(Sheet sheet, char separator = ',', bool formatted = false)
     {
         var extent = sheet.Extent;
         var built = new StringBuilder();
@@ -22,11 +27,25 @@ public static class Csv
             for (int c = 1; c <= extent.Column; c++)
             {
                 if (c > 1) built.Append(separator);
-                built.Append(Quote(sheet.Read(new CellRef(c, r)).Display, separator));
+                built.Append(Quote(Field(sheet, new CellRef(c, r), formatted), separator));
             }
             built.Append("\r\n");
         }
         return built.ToString();
+    }
+
+    private static string Field(Sheet sheet, CellRef reference, bool formatted)
+    {
+        var cell = sheet.Read(reference);
+        if (formatted) return cell.Display;
+        if (cell.Kind is not (CellKind.Number or CellKind.Formula)) return cell.Display;
+        if (cell.Raw.Length == 0) return cell.Display;
+
+        // A date is stored as a count of days, which means nothing outside a spreadsheet, so it keeps its face.
+        var format = sheet.FormatOf(reference);
+        bool looksLikeDate = format.Any(ch => ch is 'y' or 'd' or 'h' or 's')
+                             || (format.Contains('m') && !format.Contains("0.") && !format.Contains('#'));
+        return looksLikeDate ? cell.Display : cell.Raw;
     }
 
     public static string Quote(string field, char separator = ',')

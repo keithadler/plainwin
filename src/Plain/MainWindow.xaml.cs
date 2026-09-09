@@ -18,6 +18,8 @@ public partial class MainWindow : Window
     private OpenFile? _active;
     private bool _railVisible = true;
     private bool _notesVisible;
+    private bool _picturesVisible;
+    private System.Windows.Threading.DispatcherTimer? _keeper;
 
     /// <summary>One file the app is holding: the model, the view, what changed, and how to put it back.</summary>
     private sealed class OpenFile
@@ -36,11 +38,15 @@ public partial class MainWindow : Window
         InitializeComponent();
         _railVisible = _settings.ShowPreserved;
         ApplyTextScale();
+        StartKeeping();
         Loaded += (_, _) =>
         {
             if (!Screenshots.Active)
+            {
                 foreach (var arg in Environment.GetCommandLineArgs().Skip(1))
                     if (!arg.StartsWith('-') && File.Exists(arg)) OpenPath(arg);
+                OfferRecovery();
+            }
             Refresh();
         };
         KeyDown += OnWindowKey;
@@ -52,6 +58,55 @@ public partial class MainWindow : Window
         OpenPath(path);
         _notesVisible = showNotes;
         Refresh();
+    }
+
+    // ---------- keeping what has not been saved ----------
+
+    /// <summary>
+    /// Every half minute, put a copy of anything unsaved beside the settings. The machines this runs on lose power
+    /// without warning, and losing an afternoon of typing to that is the difference between a tool people trust and
+    /// one they do not.
+    /// </summary>
+    private void StartKeeping()
+    {
+        _keeper = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
+        _keeper.Tick += (_, _) =>
+        {
+            if (!_settings.KeepRecovery) return;
+            foreach (var file in _open.Where(f => f.Dirty))
+                Recovery.Keep(file.File, file.FilePath);
+        };
+        _keeper.Start();
+    }
+
+    /// <summary>Offer back anything a previous run did not get to save.</summary>
+    private void OfferRecovery()
+    {
+        var waiting = Recovery.Waiting().Where(w => !_open.Any(f => string.Equals(f.FilePath, w.Original, StringComparison.OrdinalIgnoreCase))).ToList();
+        if (waiting.Count == 0) return;
+
+        var names = string.Join("\n", waiting.Select(w => $"  {Path.GetFileName(w.Original)}  (kept {w.When.Replace("T", " at ")})"));
+        var answer = MessageBox.Show(this,
+            $"Plain closed with changes it had not saved:\n\n{names}\n\nOpen the kept copies? " +
+            "They open beside your files, so nothing is written over until you save.",
+            "Plain", MessageBoxButton.YesNo, MessageBoxImage.Information);
+
+        if (answer != MessageBoxResult.Yes) { Recovery.ForgetAll(); return; }
+
+        foreach (var (original, _, copy) in waiting)
+        {
+            try
+            {
+                var file = PlainFile.Open(copy);
+                var entry = Build(file, original);
+                entry.Dirty = true;
+                _open.Add(entry);
+                _active = entry;
+            }
+            catch (Exception ex) { Say($"Could not open the kept copy of {Path.GetFileName(original)}: {Explain(ex)}"); }
+        }
+        Recovery.ForgetAll();
+        Say("These are the kept copies. Save them to put the changes back into your files.");
     }
 
     // ---------- opening ----------
@@ -157,6 +212,7 @@ public partial class MainWindow : Window
             case FileKind.Document:
             {
                 var docView = new DocView(file.Document!);
+                docView.ApplyReading(_settings);
                 view = docView;
                 entry = new OpenFile { File = file, View = view, FilePath = path };
                 docView.Edited += undo =>
@@ -313,6 +369,7 @@ public partial class MainWindow : Window
             _active.File.Save();
             _active.Dirty = false;
             _active.Undo.Clear();
+            Recovery.Forget(_active.FilePath);
             Say($"Saved {_active.Name}. {edited} of {total} parts rewritten, {kept} kept byte for byte.");
         }
         catch (Exception ex) { Say("Could not save: " + Explain(ex)); }
@@ -382,7 +439,87 @@ public partial class MainWindow : Window
     private void OnToggleNotes(object sender, RoutedEventArgs e)
     {
         _notesVisible = !_notesVisible;
+        if (_notesVisible) _picturesVisible = false;
         Refresh();
+    }
+
+    private void OnTogglePictures(object sender, RoutedEventArgs e)
+    {
+        _picturesVisible = !_picturesVisible;
+        if (_picturesVisible) _notesVisible = false;
+        Refresh();
+    }
+
+    private void OnSavePictures(object sender, RoutedEventArgs e)
+    {
+        if (_active is null) return;
+        var pictures = Media.In(_active.File);
+        if (pictures.Count == 0) return;
+        var dialog = new SaveFileDialog
+        {
+            Title = "Choose a folder: the pictures go beside this name",
+            FileName = "pictures here.txt",
+            InitialDirectory = Path.GetDirectoryName(_active.FilePath),
+        };
+        if (dialog.ShowDialog(this) != true) return;
+        var folder = Path.GetDirectoryName(dialog.FileName)!;
+        try
+        {
+            foreach (var picture in pictures) Media.SaveTo(picture, folder);
+            Say($"Wrote {pictures.Count} picture{(pictures.Count == 1 ? "" : "s")} into {folder}.");
+        }
+        catch (Exception ex) { Say("Could not write the pictures: " + Explain(ex)); }
+    }
+
+    /// <summary>Accept one tracked change, or keep one comment's thread by doing nothing to it.</summary>
+    private void OnSettleOne(object sender, RoutedEventArgs e) => Settle(sender, keep: true);
+    private void OnDropOne(object sender, RoutedEventArgs e) => Settle(sender, keep: false);
+
+    private void Settle(object sender, bool keep)
+    {
+        if (_active is null || sender is not Button { Tag: string id }) return;
+        var parts = id.Split(':');
+        if (parts.Length != 2 || !int.TryParse(parts[1], out var index)) return;
+
+        try
+        {
+            var before = Snapshot(_active);
+            bool done = parts[0] switch
+            {
+                "change" => Annotations.SettleRevision(_active.File, index, accept: keep),
+                "comment" => !keep && Annotations.RemoveComment(_active.File, index),
+                _ => false,
+            };
+            if (!done) { if (parts[0] == "comment" && keep) Say("Comments are kept unless you remove them."); return; }
+            _active.Dirty = true;
+            _active.Undo.Push(() => Restore(_active, before));
+            Rebuild(_active);
+            Say(parts[0] == "comment" ? "Comment removed." : keep ? "Change accepted." : "Change turned down.");
+        }
+        catch (Exception ex) { Say("Could not do that: " + Explain(ex)); }
+    }
+
+    private void OnRejectChanges(object sender, RoutedEventArgs e)
+    {
+        if (_active is null) return;
+        var before = Snapshot(_active);
+        int settled = Annotations.RejectRevisions(_active.File);
+        if (settled == 0) { Say("There are no tracked changes to turn down."); return; }
+        _active.Dirty = true;
+        _active.Undo.Push(() => Restore(_active, before));
+        Rebuild(_active);
+        Say($"Turned down {settled} tracked change{(settled == 1 ? "" : "s")}: what was struck out is back.");
+    }
+
+    private void OnSettings(object sender, RoutedEventArgs e)
+    {
+        var dialog = new ReadingSettings(_settings) { Owner = this };
+        if (dialog.ShowDialog() != true) return;
+        _settings.Save();
+        ApplyTextScale();
+        foreach (var file in _open) if (file.View is DocView doc) doc.ApplyReading(_settings);
+        Refresh();
+        Say("Reading settings saved.");
     }
 
     /// <summary>Copy the top cell of the selection down through the rest of it, the way a column of rates gets filled.</summary>
@@ -547,6 +684,54 @@ public partial class MainWindow : Window
         catch (Exception ex) { Say("Could not change the sheet: " + Explain(ex)); }
     }
 
+    /// <summary>Write the file out as a PDF, which more panels asked for than anything else.</summary>
+    private void OnPdf(object sender, RoutedEventArgs e)
+    {
+        if (_active is null) return;
+        var dialog = new SaveFileDialog
+        {
+            Title = "Save as PDF",
+            FileName = Path.GetFileNameWithoutExtension(_active.FilePath) + ".pdf",
+            DefaultExt = ".pdf",
+            Filter = "PDF|*.pdf",
+            InitialDirectory = Path.GetDirectoryName(_active.FilePath),
+        };
+        if (dialog.ShowDialog(this) != true) return;
+        try
+        {
+            _active.File.Flush();
+            var result = PdfExport.Build(_active.File, Path.GetFileNameWithoutExtension(_active.FilePath));
+            File.WriteAllBytes(dialog.FileName, result.Bytes);
+            Say($"Wrote {Path.GetFileName(dialog.FileName)}: {result.Pages} page{(result.Pages == 1 ? "" : "s")}." +
+                (result.Warning is null ? "" : "  " + result.Warning));
+        }
+        catch (Exception ex) { Say("Could not write the PDF: " + Explain(ex)); }
+    }
+
+    private void OnBullet(object sender, RoutedEventArgs e) => List(bulleted: true);
+    private void OnNumberList(object sender, RoutedEventArgs e) => List(bulleted: false);
+
+    private void List(bool bulleted)
+    {
+        if (_active?.View is not DocView doc || _active.File.Document is null) return;
+        if (doc.FocusedBlock is not { } index) { Say("Click the line you want to change first."); return; }
+        try
+        {
+            var before = Snapshot(_active);
+            bool on = !_active.File.Document.IsList(index);
+            if (!_active.File.Document.SetList(index, bulleted, on))
+            {
+                Say("This document carries no list numbering, and Plain will not invent one that would not match it.");
+                return;
+            }
+            _active.Dirty = true;
+            _active.Undo.Push(() => Restore(_active, before));
+            Rebuild(_active);
+            Say(on ? $"That line is a {(bulleted ? "bullet" : "numbered item")} now." : "That line is out of the list.");
+        }
+        catch (Exception ex) { Say("Could not change that: " + Explain(ex)); }
+    }
+
     // ---------- bold, italic, headings ----------
 
     private void OnBold(object sender, RoutedEventArgs e) => Mark("b");
@@ -647,7 +832,11 @@ public partial class MainWindow : Window
 
     // ---------- what other people wrote ----------
 
-    private sealed record NoteLine(string Who, string When, string What);
+    /// <summary>One line of the comments panel, with what can be done to it.</summary>
+    private sealed record NoteLine(string Who, string When, string What, string Id, string KeepLabel, string DropLabel)
+    {
+        public Visibility Actions => Id.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
 
     private void OnAcceptChanges(object sender, RoutedEventArgs e)
     {
@@ -748,8 +937,18 @@ public partial class MainWindow : Window
         FillFormatPicker();
         FillStylePicker();
         FillNotes();
+        FillPictures();
         bool canMark = _active.File.Kind is FileKind.Spreadsheet or FileKind.Document;
         BoldBtn.Visibility = ItalicBtn.Visibility = canMark ? Visibility.Visible : Visibility.Collapsed;
+
+        bool document = _active.File.Kind == FileKind.Document;
+        BulletBtn.Visibility = NumberBtn.Visibility = document ? Visibility.Visible : Visibility.Collapsed;
+        if (document && _active.File.Document is not null)
+        {
+            var (bullets, numbers) = _active.File.Document.ListsAvailable();
+            BulletBtn.IsEnabled = bullets;
+            NumberBtn.IsEnabled = numbers;
+        }
 
         var parts = _active.File.Parts();
         var kept = parts.Where(p => p.Role == PartRole.Preserved).ToList();
@@ -771,6 +970,7 @@ public partial class MainWindow : Window
         };
 
         Notes.Visibility = _notesVisible ? Visibility.Visible : Visibility.Collapsed;
+        Pictures.Visibility = _picturesVisible ? Visibility.Visible : Visibility.Collapsed;
 
         if (rows.Count == 0 && bookkeeping > 0)
             RailFoot.Text = $"Everything in this file is something Plain shows, apart from {bookkeeping} parts of bookkeeping. Nothing is being held back.";
@@ -783,7 +983,7 @@ public partial class MainWindow : Window
         StatusStat.Text = _active.File.Kind switch
         {
             FileKind.Spreadsheet => Describe(_active),
-            FileKind.Document => $"{_active.File.Document!.BlockCount} blocks, flowing view with no page breaks",
+            FileKind.Document => $"{Counts.Of(_active.File.Document!.PlainText()).Words:N0} words, flowing view with no page breaks",
             _ => $"Slide {(_active.View as DeckView)?.Current.Number} of {_active.File.Deck!.Slides.Count}",
         };
 
@@ -840,6 +1040,43 @@ public partial class MainWindow : Window
         finally { _settingStyle = false; }
     }
 
+    /// <summary>One line of the pictures panel, with the picture itself where it can be drawn.</summary>
+    private sealed record PictureLine(string Kind, string Size, string Part, System.Windows.Media.ImageSource? Preview);
+
+    /// <summary>The pictures in the file, drawn where Windows can draw them and listed where it cannot.</summary>
+    private void FillPictures()
+    {
+        if (_active is null) return;
+        var pictures = Media.In(_active.File);
+        PicturesBtn.Visibility = pictures.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        PicturesBtn.Content = $"Pictures  {pictures.Count}";
+        if (pictures.Count == 0) { _picturesVisible = false; return; }
+
+        var lines = new List<PictureLine>();
+        foreach (var picture in pictures)
+        {
+            System.Windows.Media.ImageSource? preview = null;
+            if (Media.Drawable(picture.Part))
+            {
+                try
+                {
+                    var image = new System.Windows.Media.Imaging.BitmapImage();
+                    image.BeginInit();
+                    image.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+                    image.StreamSource = new MemoryStream(picture.Read());
+                    image.DecodePixelWidth = 260;      // no need for the full size in a narrow panel
+                    image.EndInit();
+                    image.Freeze();
+                    preview = image;
+                }
+                catch { }   // a picture Windows will not decode is listed rather than shown
+            }
+            lines.Add(new PictureLine(picture.Kind + (preview is null ? " (not shown)" : ""), picture.Size, picture.Part, preview));
+        }
+        PictureList.ItemsSource = lines;
+        PicturesLede.Text = $"{pictures.Count} picture{(pictures.Count == 1 ? "" : "s")} are in this file. Plain keeps them exactly as they are; this is so you can see what you are sending.";
+    }
+
     /// <summary>What other people wrote, and whether there is anything to show at all.</summary>
     private void FillNotes()
     {
@@ -853,20 +1090,25 @@ public partial class MainWindow : Window
         if (total == 0) { _notesVisible = false; return; }
 
         var lines = new List<NoteLine>();
+        bool canAct = _active.File.Kind == FileKind.Document;
         foreach (var note in comments)
             lines.Add(new NoteLine(note.Author.Length > 0 ? note.Author : "Someone",
                                    note.When,
-                                   note.Text + (note.Where.Length > 0 && note.Where != "comment" ? $"  ({note.Where})" : "")));
+                                   note.Text + (note.Where.Length > 0 && note.Where != "comment" ? $"  ({note.Where})" : ""),
+                                   canAct ? $"comment:{note.Index}" : "",
+                                   "Keep", "Remove"));
         foreach (var revision in revisions)
             lines.Add(new NoteLine(revision.Author.Length > 0 ? revision.Author : "Someone",
                                    revision.When,
-                                   (revision.Inserted ? "Added: " : "Struck out: ") + revision.Text));
+                                   (revision.Inserted ? "Added: " : "Struck out: ") + revision.Text,
+                                   canAct ? $"change:{revision.Index}" : "",
+                                   "Accept", "Turn down"));
         NotesList.ItemsSource = lines;
 
         NotesLede.Text = $"{comments.Count} comment{(comments.Count == 1 ? "" : "s")} and " +
                          $"{revisions.Count} tracked change{(revisions.Count == 1 ? "" : "s")} are in this file. " +
                          "They stay in it whether or not you look at them.";
-        AcceptBtn.IsEnabled = revisions.Count > 0;
+        AcceptBtn.IsEnabled = RejectBtn.IsEnabled = revisions.Count > 0;
         ClearNotesBtn.IsEnabled = comments.Count > 0;
     }
 

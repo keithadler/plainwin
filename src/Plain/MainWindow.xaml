@@ -34,6 +34,7 @@
         <Button x:Name="CopyBtn" Style="{StaticResource Flat}" Content="Save a copy" Click="OnSaveCopy" DockPanel.Dock="Left" Margin="2,0,0,0"/>
         <Button x:Name="UndoBtn" Style="{StaticResource Flat}" Content="Undo" Click="OnUndo" DockPanel.Dock="Left" Margin="2,0,0,0"/>
         <Button x:Name="PrintBtn" Style="{StaticResource Flat}" Content="Print" Click="OnPrint" DockPanel.Dock="Left" Margin="2,0,0,0"/>
+        <Button x:Name="PdfBtn" Style="{StaticResource Flat}" Content="PDF" Click="OnPdf" DockPanel.Dock="Left" Margin="2,0,0,0" ToolTip="Write this out as a PDF"/>
         <Border x:Name="Sep1" Width="1" Background="{DynamicResource Line}" Height="18" Margin="8,0" DockPanel.Dock="Left"/>
         <Button x:Name="BoldBtn" Style="{StaticResource Flat}" Content="B" FontWeight="Bold" Width="30"
                 Click="OnBold" DockPanel.Dock="Left" Visibility="Collapsed" ToolTip="Bold (Ctrl+B)"/>
@@ -46,8 +47,16 @@
         <ComboBox x:Name="FormatPicker" DockPanel.Dock="Left" Width="132" Height="26" Margin="0,0,6,0"
                   VerticalContentAlignment="Center" FontSize="12.5" Visibility="Collapsed"
                   SelectionChanged="OnFormatPicked" ToolTip="How the selected cells show their number"/>
+        <Button x:Name="BulletBtn" Style="{StaticResource Flat}" Content="&#8226;" Width="30" Click="OnBullet"
+                DockPanel.Dock="Left" Visibility="Collapsed" ToolTip="Bulleted list"/>
+        <Button x:Name="NumberBtn" Style="{StaticResource Flat}" Content="1." Width="30" Click="OnNumberList"
+                DockPanel.Dock="Left" Margin="2,0,6,0" Visibility="Collapsed" ToolTip="Numbered list"/>
         <Button x:Name="NotesBtn" Style="{StaticResource Flat}" Content="Comments" Click="OnToggleNotes"
                 DockPanel.Dock="Left" Visibility="Collapsed"/>
+        <Button x:Name="PicturesBtn" Style="{StaticResource Flat}" Content="Pictures" Click="OnTogglePictures"
+                DockPanel.Dock="Left" Margin="2,0,0,0" Visibility="Collapsed"/>
+        <Button x:Name="SettingsBtn" Style="{StaticResource Flat}" Content="Reading" Click="OnSettings"
+                DockPanel.Dock="Right" Margin="6,0,0,0" ToolTip="Font, paper colour and spacing"/>
         <TextBlock x:Name="ContextHint" DockPanel.Dock="Left" VerticalAlignment="Center"
                    Foreground="{DynamicResource Ink3}" FontSize="12"/>
         <Button x:Name="KeepBtn" Style="{StaticResource Flat}" Click="OnToggleRail" DockPanel.Dock="Right"
@@ -116,6 +125,8 @@
           <StackPanel DockPanel.Dock="Bottom" Margin="12,10">
             <Button x:Name="AcceptBtn" Style="{StaticResource Flat}" Content="Accept all tracked changes"
                     HorizontalContentAlignment="Left" Click="OnAcceptChanges"/>
+            <Button x:Name="RejectBtn" Style="{StaticResource Flat}" Content="Turn down all tracked changes"
+                    HorizontalContentAlignment="Left" Click="OnRejectChanges" Margin="0,2,0,0"/>
             <Button x:Name="ClearNotesBtn" Style="{StaticResource Flat}" Content="Delete all comments"
                     HorizontalContentAlignment="Left" Click="OnRemoveComments" Margin="0,2,0,0"/>
           </StackPanel>
@@ -134,6 +145,47 @@
                       </DockPanel>
                       <TextBlock Text="{Binding What}" FontSize="12" TextWrapping="Wrap" Margin="0,3,0,0"
                                  Foreground="{DynamicResource Ink2}"/>
+                      <StackPanel Orientation="Horizontal" Margin="0,4,0,0" Visibility="{Binding Actions}">
+                        <Button Style="{StaticResource Flat}" Content="{Binding KeepLabel}" Height="22" FontSize="11.5"
+                                Padding="7,0" Click="OnSettleOne" Tag="{Binding Id}"/>
+                        <Button Style="{StaticResource Flat}" Content="{Binding DropLabel}" Height="22" FontSize="11.5"
+                                Padding="7,0" Margin="4,0,0,0" Click="OnDropOne" Tag="{Binding Id}"/>
+                      </StackPanel>
+                    </StackPanel>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </ScrollViewer>
+        </DockPanel>
+      </Border>
+
+      <Border x:Name="Pictures" Grid.Column="1" Width="300" Background="{DynamicResource Surface2}"
+              BorderBrush="{DynamicResource Line}" BorderThickness="1,0,0,0" Visibility="Collapsed">
+        <DockPanel>
+          <StackPanel DockPanel.Dock="Top" Margin="14,12,14,10">
+            <TextBlock Text="PICTURES IN THIS FILE" FontWeight="Bold" FontSize="11" Foreground="{DynamicResource Accent}"/>
+            <TextBlock x:Name="PicturesLede" TextWrapping="Wrap" FontSize="11.5" Margin="0,5,0,0"
+                       Foreground="{DynamicResource Ink2}"/>
+          </StackPanel>
+          <Border DockPanel.Dock="Top" Height="1" Background="{DynamicResource Line}"/>
+          <Button x:Name="SavePicturesBtn" DockPanel.Dock="Bottom" Style="{StaticResource Flat}" Margin="12,10"
+                  Content="Save them all to a folder" HorizontalContentAlignment="Left" Click="OnSavePictures"/>
+          <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <ItemsControl x:Name="PictureList">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                  <Border BorderBrush="{DynamicResource Line}" BorderThickness="0,0,0,1" Padding="14,10">
+                    <StackPanel>
+                      <Image Source="{Binding Preview}" MaxHeight="150" Stretch="Uniform"
+                             HorizontalAlignment="Left" Margin="0,0,0,6"/>
+                      <DockPanel>
+                        <TextBlock Text="{Binding Size}" DockPanel.Dock="Right" FontSize="10.5" Margin="8,0,0,0"
+                                   FontFamily="Cascadia Mono, Consolas" Foreground="{DynamicResource Ink3}"/>
+                        <TextBlock Text="{Binding Kind}" FontSize="11.5" Foreground="{DynamicResource Ink}"/>
+                      </DockPanel>
+                      <TextBlock Text="{Binding Part}" FontFamily="Cascadia Mono, Consolas" FontSize="10.5"
+                                 TextWrapping="Wrap" Foreground="{DynamicResource Ink3}"/>
                     </StackPanel>
                   </Border>
                 </DataTemplate>
