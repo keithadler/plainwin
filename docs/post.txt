@@ -6,6 +6,8 @@ Plain opens the file as the package of parts it really is and writes back every 
 
 Open a file, save it without changing anything, and you get the same file back byte for byte. That's a claim a test can check, and it's checked against real documents on every build — 39 of 39, including ones stuffed with macros and pivot tables.
 
-One exe. No installer, no account, no cloud, no telemetry. It asks GitHub once a day whether there is a newer version, and that is the only thing it ever sends; turn it off and it makes no network request at all. Free and MIT.
+It does the fifth of the job that fills most of the day: cells and formulas, sorting, headings and tables, comments and tracked changes, the text on every slide, find and replace, print and PDF. When sorting would make a formula mean something else, it refuses and tells you which one, rather than guessing.
+
+One exe. No installer, no account, no cloud, no telemetry. It asks GitHub once a day whether there's a newer version and that's the only thing it ever sends; turn it off and it makes no network request at all. Free and MIT.
 
 Windows 10 or 11, Intel/AMD or ARM: https://github.com/keithadler/plainwin
