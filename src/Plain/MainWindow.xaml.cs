@@ -48,6 +48,17 @@ public partial class MainWindow : Window
         _railVisible = _settings.ShowPreserved;
         ApplyTextScale();
         StartKeeping();
+
+        // If something unexpected goes wrong, the work is kept before anything else happens.
+        Trouble.KeepUnsaved = () =>
+        {
+            int kept = 0;
+            foreach (var file in _open.Where(f => f.Dirty))
+            {
+                try { Recovery.Keep(file.File, file.FilePath); kept++; } catch { }
+            }
+            return kept;
+        };
         Loaded += (_, _) =>
         {
             if (!Screenshots.Active)
@@ -403,6 +414,7 @@ public partial class MainWindow : Window
         }
         // Control, and Control with Shift, which is how redo is spelled. Anything with Alt or Windows is not ours.
         var held = e.KeyboardDevice.Modifiers;
+        if (e.Key == Key.F1) { OnShortcuts(sender, e); e.Handled = true; return; }
         if ((held & ModifierKeys.Control) == 0) return;
         if ((held & (ModifierKeys.Alt | ModifierKeys.Windows)) != 0) return;
         switch (e.Key)
@@ -1502,6 +1514,112 @@ public partial class MainWindow : Window
     /// Which version this is, and where the help lives. An IT department cannot support three hundred people if the
     /// first question on every call needs a command prompt to answer.
     /// </summary>
+    /// <summary>
+    /// The help page, which travels inside the exe so it works with no network, on a machine with nothing
+    /// installed, and from a USB stick. Spanish where Windows is set to Spanish, English otherwise.
+    /// </summary>
+    private void OnHelp(object sender, RoutedEventArgs e)
+    {
+        var spanish = System.Globalization.CultureInfo.CurrentUICulture.TwoLetterISOLanguageName
+            .Equals("es", StringComparison.OrdinalIgnoreCase);
+        var name = spanish ? "Help.es.html" : "Help.html";
+
+        try
+        {
+            using var stream = typeof(MainWindow).Assembly.GetManifestResourceStream(name)
+                            ?? typeof(MainWindow).Assembly.GetManifestResourceStream("Help.html");
+            if (stream is null) { Say("This copy of Plain was built without its help page."); return; }
+
+            var to = Path.Combine(Path.GetTempPath(), name);
+            using (var file = File.Create(to)) stream.CopyTo(file);
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(to) { UseShellExecute = true });
+        }
+        catch (Exception ex) { Say("Could not open the help page: " + Explain(ex)); }
+    }
+
+    /// <summary>
+    /// Every keystroke, in one place. A program with no ribbon has to be discoverable some other way, and a menu
+    /// people have to hunt through is not it. F1, because that is where everyone already looks.
+    /// </summary>
+    private void OnShortcuts(object sender, RoutedEventArgs e)
+    {
+        var groups = new (string Where, (string Keys, string Does)[] Rows)[]
+        {
+            ("Files", new[]
+            {
+                ("Ctrl+N", "A new file"),
+                ("Ctrl+O", "Open one"),
+                ("Ctrl+S", "Save"),
+                ("Ctrl+W", "Close the one in front"),
+                ("Ctrl+P", "Print"),
+            }),
+            ("Changing things", new[]
+            {
+                ("Ctrl+Z", "Undo"),
+                ("Ctrl+Y, or Ctrl+Shift+Z", "Redo"),
+                ("Ctrl+B, Ctrl+I", "Bold, italic"),
+                ("Ctrl+C, Ctrl+X, Ctrl+V", "Copy, cut, paste"),
+                ("Delete", "Empty the selected cells"),
+            }),
+            ("Finding your way", new[]
+            {
+                ("Ctrl+F", "Find"),
+                ("Ctrl+H", "Find and replace"),
+                ("Ctrl+Shift+F", "Find in a whole folder"),
+                ("Ctrl+G", "Go to a cell"),
+                ("Ctrl+arrow", "To the end of the run of filled cells"),
+                ("Ctrl+Home, Ctrl+End", "To the corners of the sheet"),
+                ("F2", "Edit the selected cell"),
+                ("Ctrl+D", "Fill down from the cell above"),
+            }),
+            ("The window", new[]
+            {
+                ("F1", "This list"),
+                ("Ctrl+Tab", "The next file that is open"),
+                ("Right-click a cell", "Sorting, filtering, colours, borders, and what a cell reads"),
+                ("Escape", "Put away the find bar"),
+            }),
+        };
+
+        var stack = new StackPanel { Margin = new Thickness(20) };
+        foreach (var (where, rows) in groups)
+        {
+            stack.Children.Add(new TextBlock
+            {
+                Text = where, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 14, 0, 6),
+            });
+            var grid = new Grid();
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(190) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            for (int i = 0; i < rows.Length; i++)
+            {
+                grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                var keys = new TextBlock
+                {
+                    Text = rows[i].Keys, FontFamily = new FontFamily("Cascadia Mono, Consolas"), FontSize = 12,
+                    Foreground = App.B("Ink"), Margin = new Thickness(0, 2, 12, 2), TextWrapping = TextWrapping.Wrap,
+                };
+                var does = new TextBlock
+                {
+                    Text = rows[i].Does, FontSize = 12.5, Foreground = App.B("Ink2"),
+                    Margin = new Thickness(0, 2, 0, 2), TextWrapping = TextWrapping.Wrap,
+                };
+                Grid.SetRow(keys, i); Grid.SetColumn(keys, 0);
+                Grid.SetRow(does, i); Grid.SetColumn(does, 1);
+                grid.Children.Add(keys); grid.Children.Add(does);
+            }
+            stack.Children.Add(grid);
+        }
+
+        var window = new Window
+        {
+            Title = "Keyboard shortcuts", Content = new ScrollViewer { Content = stack }, Owner = this,
+            Width = 560, Height = 620, WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Background = App.B("Chrome"), Foreground = App.B("Ink"),
+        };
+        window.ShowDialog();
+    }
+
     private void OnAbout(object sender, RoutedEventArgs e)
     {
         MessageBox.Show(this,

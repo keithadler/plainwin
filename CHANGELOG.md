@@ -1,5 +1,29 @@
 # Changelog
 
+## 1.4.2, 2026-09-09
+
+Ten things that are not about editing documents.
+
+**An icon.** The exe wore the generic Windows icon in Explorer, the taskbar and Alt+Tab.
+
+**Releases are built by a public job now, with checksums.** Every release before this one was built on one laptop and uploaded by hand. Plain is not signed, so the only thing anyone could check was nothing at all. Now the executables are built on a clean runner from a commit anyone can read, and a `SHA256SUMS.txt` is published beside them by the same job. That does not make the download trusted; it makes it traceable, which is the honest version.
+
+**Something going wrong no longer takes your work with it.** An unexpected error used to end in the .NET crash box. Now a copy of anything unsaved is kept first, what happened is written to a file beside the settings, and you are told in a sentence what happened, where the note is, and that the work was kept. Nothing is sent anywhere.
+
+**Document type definitions are refused.** A .docx is XML, and XML has a way of saying "fetch this and paste it in here". .NET happened not to fetch it, but it accepted the file and quietly dropped what the entity stood for, so a document could lose text with nobody told. Now it is refused, said out loud in the code rather than left to a default, and there are checks that a file naming a path or a web address is turned away and that entities which multiply cannot chew up the machine.
+
+**The grid can be read by a screen reader.** It is drawn rather than built from controls, so a screen reader found one blank surface. It now says where you are and what is in the cell as you move. Sixteen other controls got names too.
+
+**F1 lists every keystroke**, and there is a help page inside the exe that works with no network, in English or Spanish.
+
+**Portable mode.** Put an empty file called `plain-portable` beside the exe and everything lives in a folder beside it: settings, recent files, copies of unsaved work. Plain then leaves nothing on the machine, which is what you want on a USB stick or somebody else's computer.
+
+**A SECURITY.md** that says what Plain is exposed to, what it refuses to do, that it is not signed and why, and what would worry me.
+
+**Startup was measured rather than assumed**: the window appears in 87 ms and the console twin answers in 122 ms, so nothing needed doing. Recorded so it can be watched.
+
+1,020 checks, up from 1,014.
+
 ## 1.4.1, 2026-09-09
 
 **A switch's value could end up in your cell.** `plain set book.xlsx B5 25000 --sheet Summary` wrote the text `25000 Summary` into B5: a number quietly became words, and a column of words does not add up. Every switch that takes a value was affected, on every verb that takes both a switch and words of its own, since switches with values were added in 1.3. The console twin now knows which switches are followed by a value and never reads one as something the verb was given.

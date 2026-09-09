@@ -62,12 +62,35 @@ public static class Ns
 public static class Xml
 {
     /// <summary>
+    /// How every part of every file is read. Said out loud rather than left to the defaults, because these are
+    /// the settings that decide whether a document someone sends you can make Plain do something for it.
+    ///
+    /// No document type definitions: a DTD is how XML says "go and fetch this and paste it in here", and a file
+    /// that carries one is either damaged or trying something. .NET happens not to fetch it, but it accepts the
+    /// file and quietly drops what the entity stood for, which means a document could lose text without anyone
+    /// being told. Refusing is both safer and more honest.
+    ///
+    /// No resolver: nothing to reach a disk or a network with, whatever else changes underneath.
+    /// </summary>
+    private static readonly XmlReaderSettings Careful = new()
+    {
+        DtdProcessing = DtdProcessing.Prohibit,
+        XmlResolver = null,
+        MaxCharactersFromEntities = 0,
+        CloseInput = true,
+    };
+
+    /// <summary>
     /// Parse a part. A damaged file is a sentence someone can act on, not a stack trace, so the XML reader's own
     /// complaint is turned into one here rather than at every call site.
     /// </summary>
     public static XDocument Parse(byte[] bytes)
     {
-        try { return XDocument.Parse(OpcPackage.DecodeUtf8(bytes), LoadOptions.PreserveWhitespace); }
+        try
+        {
+            using var reader = XmlReader.Create(new StringReader(OpcPackage.DecodeUtf8(bytes)), Careful);
+            return XDocument.Load(reader, LoadOptions.PreserveWhitespace);
+        }
         catch (XmlException ex)
         {
             throw new OpcPackage.PackageException(

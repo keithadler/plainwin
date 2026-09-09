@@ -25,10 +25,12 @@
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
 
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Version>1.4.1</Version>
-    <AssemblyVersion>1.4.1.0</AssemblyVersion>
-    <FileVersion>1.4.1.0</FileVersion>
-    <InformationalVersion>1.4.1</InformationalVersion>
+    <!-- Without this the exe wears the generic Windows icon everywhere: Explorer, the taskbar, Alt+Tab. -->
+    <ApplicationIcon Condition="'$(CliBuild)' != 'true' And Exists('../../icon/plain.ico')">../../icon/plain.ico</ApplicationIcon>
+    <Version>1.4.2</Version>
+    <AssemblyVersion>1.4.2.0</AssemblyVersion>
+    <FileVersion>1.4.2.0</FileVersion>
+    <InformationalVersion>1.4.2</InformationalVersion>
     <Product>Plain for Windows</Product>
     <Company>Keith Adler</Company>
     <Copyright>Copyright (c) 2026 Keith Adler. MIT licensed.</Copyright>
@@ -41,6 +43,9 @@
 
   <ItemGroup Condition="'$(CliBuild)' != 'true'">
     <Resource Include="../../icon/plain-256.png" Link="Assets/plain-256.png" Condition="Exists('../../icon/plain-256.png')" />
+    <!-- Help travels inside the exe, so it works with no network and on a machine with nothing installed. -->
+    <EmbeddedResource Include="../../docs/Help.html" LogicalName="Help.html" Condition="Exists('../../docs/Help.html')" />
+    <EmbeddedResource Include="../../docs/Help.es.html" LogicalName="Help.es.html" Condition="Exists('../../docs/Help.es.html')" />
   </ItemGroup>
 
   <!-- The console twin needs none of the window's files. -->
@@ -51,6 +56,7 @@
     <Compile Remove="DocView.cs" />
     <Compile Remove="DeckView.cs" />
     <Compile Remove="Screenshots.cs" />
+    <Compile Remove="Trouble.cs" />
     <!-- the console twin never checks for updates: a scheduled job should not reach the network unasked -->
     <Compile Remove="UpdateCheck.cs" />
     <Compile Remove="Promo.cs" />

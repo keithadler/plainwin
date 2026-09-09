@@ -39,6 +39,31 @@ public sealed class SheetView : Grid
     public event Action<CellRef, Cell>? SelectionChanged;
     public event Action<Edit>? Edited;
 
+    /// <summary>
+    /// Tell a screen reader where the caret is and what is in the cell.
+    ///
+    /// The grid is drawn rather than built out of controls, so without this a screen reader finds one blank
+    /// surface and can say nothing at all about it. This is not a full description of the sheet, and it is not
+    /// pretending to be: it is where you are and what is there, kept up to date as you move, which is the
+    /// difference between a grid somebody can use and one they cannot.
+    /// </summary>
+    private void Announce()
+    {
+        try
+        {
+            var cell = Get(_selected);
+            var what = cell.Kind == CellKind.Empty ? "empty" : cell.Display;
+            var formula = cell.Formula is { Length: > 0 } f ? $", formula {f}" : "";
+            var joined = _sheet.MergeAt(_selected) is not null ? ", joined with its neighbours" : "";
+            var said = $"{_selected} on {_sheet.Name}, {what}{formula}{joined}";
+
+            System.Windows.Automation.AutomationProperties.SetName(_surface, said);
+            var peer = System.Windows.Automation.Peers.UIElementAutomationPeer.FromElement(_surface);
+            peer?.RaiseAutomationEvent(System.Windows.Automation.Peers.AutomationEvents.AutomationFocusChanged);
+        }
+        catch { /* a screen reader that is not listening is not a reason to stop */ }
+    }
+
     /// <summary>Say an edit happened. A step that knows how to repeat itself passes redo as well.</summary>
     private void Raise(Action undo, Action? redo = null) => Edited?.Invoke(new Edit(undo, redo));
 
@@ -462,6 +487,7 @@ public sealed class SheetView : Grid
         _lastRow = Math.Max(extent.Row + 40, 60);
         Redraw();
         SelectionChanged?.Invoke(_selected, Get(_selected));
+        Announce();
     }
 
     /// <summary>Put a row or column in, or take one out, where the selection is.</summary>

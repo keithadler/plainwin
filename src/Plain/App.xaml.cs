@@ -37,6 +37,9 @@ public partial class App : Application
             return;
         }
 
+        // Before the window, so an error while it is being built is still caught and written down.
+        Trouble.Watch(this);
+
         base.OnStartup(e);
         ApplyTheme(WindowsPrefersDark());
         new MainWindow().Show();

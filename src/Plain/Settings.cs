@@ -66,9 +66,45 @@ public sealed class Settings
     [JsonIgnore]
     public static string RecoveryFolder => Path.Combine(Folder, "recovery");
 
+    /// <summary>
+    /// Where Plain keeps the little it remembers.
+    ///
+    /// Normally beside the rest of your account's settings. But put an empty file called "plain-portable" next to
+    /// the exe and everything lives in a "Plain" folder beside it instead: settings, the list of recent files, and
+    /// the copies of unsaved work. That makes Plain leave nothing at all on a machine it is run on, which is what
+    /// you want on a USB stick, on a locked-down PC, or on somebody else's computer.
+    ///
+    /// The file is what turns it on, rather than a setting, because a setting to control where settings are kept
+    /// has nowhere to live.
+    /// </summary>
     [JsonIgnore]
-    public static string Folder =>
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Plain for Windows");
+    public static string Folder => Portable ?? Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Plain for Windows");
+
+    /// <summary>The folder beside the exe when Plain has been told to be portable, otherwise nothing.</summary>
+    public static string? Portable
+    {
+        get
+        {
+            if (_portable is not null) return _portable.Length == 0 ? null : _portable;
+            try
+            {
+                var beside = Path.GetDirectoryName(Environment.ProcessPath ?? AppContext.BaseDirectory);
+                if (beside is not null && File.Exists(Path.Combine(beside, "plain-portable")))
+                {
+                    var folder = Path.Combine(beside, "Plain");
+                    Directory.CreateDirectory(folder);
+                    _portable = folder;
+                    return folder;
+                }
+            }
+            catch { /* a read-only or odd location: fall back to the ordinary place */ }
+            _portable = "";
+            return null;
+        }
+    }
+
+    private static string? _portable;
 
     [JsonIgnore]
     public static string FilePath => Path.Combine(Folder, "settings.json");

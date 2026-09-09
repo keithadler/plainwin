@@ -78,6 +78,46 @@ public static class DamageSuite
             s.Check("and says what would work instead", lockedSaid.Contains("save a copy"));
         }
 
+        // ---- a document that tries to make the reader do something ----
+        // A .docx is XML, and XML has a way of saying "go and fetch this file and paste it in here". A reader
+        // that obeys will read a file off the disk, or reach out to a network, because a document it was handed
+        // told it to. These check that Plain refuses rather than obeys. The claim is in SECURITY.md, so it had
+        // better be true.
+        {
+            const string external =
+                "<?xml version=\"1.0\"?><!DOCTYPE d [<!ENTITY x SYSTEM \"file:///etc/passwd\">]><d>&x;</d>";
+            s.Throws<Exception>("a document naming a file on disk is refused", () => Xml.Parse(Bytes(external)));
+
+            const string web =
+                "<?xml version=\"1.0\"?><!DOCTYPE d [<!ENTITY x SYSTEM \"http://example.invalid/x\">]><d>&x;</d>";
+            s.Throws<Exception>("a document naming a web address is refused", () => Xml.Parse(Bytes(web)));
+
+            const string parameterEntity =
+                "<?xml version=\"1.0\"?><!DOCTYPE d SYSTEM \"http://example.invalid/d.dtd\"><d/>";
+            s.Throws<Exception>("a document pointing at an outside definition is refused",
+                () => Xml.Parse(Bytes(parameterEntity)));
+
+            // Entities that refer to each other, each one bigger than the last. A reader that expands them runs
+            // out of memory on a file of a few hundred bytes.
+            var laughs = "<?xml version=\"1.0\"?><!DOCTYPE d [" +
+                "<!ENTITY a \"aaaaaaaaaa\">" +
+                "<!ENTITY b \"&a;&a;&a;&a;&a;&a;&a;&a;&a;&a;\">" +
+                "<!ENTITY c \"&b;&b;&b;&b;&b;&b;&b;&b;&b;&b;\">" +
+                "<!ENTITY e \"&c;&c;&c;&c;&c;&c;&c;&c;&c;&c;\">" +
+                "<!ENTITY f \"&e;&e;&e;&e;&e;&e;&e;&e;&e;&e;\">" +
+                "<!ENTITY g \"&f;&f;&f;&f;&f;&f;&f;&f;&f;&f;\">]><d>&g;</d>";
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            bool stopped = false;
+            try { Xml.Parse(Bytes(laughs)); } catch { stopped = true; }
+            watch.Stop();
+            s.Check("entities that multiply are refused", stopped);
+            s.Check("and refused quickly rather than chewed on",
+                watch.ElapsedMilliseconds < 2000, $"took {watch.ElapsedMilliseconds} ms");
+
+            s.Check("an ordinary document with no such tricks still reads",
+                Xml.Parse(Bytes("<?xml version=\"1.0\"?><d>hello</d>")).Root!.Value == "hello");
+        }
+
         return s;
     }
 
@@ -114,4 +154,6 @@ public static class DamageSuite
             yield return ($"a bit flipped at {at}", flipped);
         }
     }
+
+    private static byte[] Bytes(string xml) => System.Text.Encoding.UTF8.GetBytes(xml);
 }

@@ -1,0 +1,66 @@
+name: release
+
+# Builds the four executables on a clean machine when a version tag is pushed, and attaches them to the release
+# along with a file of SHA-256 sums.
+#
+# Why this exists: every release before 1.4.2 was built on one laptop and uploaded by hand. Plain is not signed,
+# because a certificate costs money this does not make, so the only thing anyone can check is that the file they
+# downloaded is the file that was published. That is worth very little when the file came from a machine nobody
+# else can see. Built here, the binary is tied to a commit anyone can read, on a runner anyone can inspect, and
+# the sums are written by the same job that made the files.
+#
+# It does not make the download trusted. It makes it traceable, which is the honest version of the same thing.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: The checks have to pass before anything is built to be released
+        run: dotnet run --project src/Plain.Selftest -c Release
+
+      - name: Build the four
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          $version = "${{ github.ref_name }}".TrimStart('v')
+          foreach ($rid in 'win-x64', 'win-arm64') {
+            $short = $rid.Replace('win-', '')
+            dotnet publish src/Plain/Plain.csproj -c Release -r $rid -o "build/$rid" --nologo
+            dotnet publish src/Plain/Plain.csproj -c Release -r $rid -o "build/$rid-cli" --nologo -p:CliBuild=true
+            Copy-Item "build/$rid/Plain for Windows.exe" "dist/Plain-for-Windows-$version-$short.exe"
+            Copy-Item "build/$rid-cli/plain.exe"         "dist/plain-$version-$short.exe"
+          }
+          Get-ChildItem dist | Select-Object Name, Length
+
+      - name: What the console twin says about itself, from the file that will be published
+        shell: pwsh
+        run: dist/plain-${{ github.ref_name }}.exe version 2>$null || dist/plain-$("${{ github.ref_name }}".TrimStart('v'))-x64.exe version
+
+      - name: Write the sums
+        shell: pwsh
+        run: |
+          $lines = Get-ChildItem dist/*.exe | ForEach-Object {
+            $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
+            "$hash  $($_.Name)"
+          }
+          $lines | Set-Content dist/SHA256SUMS.txt -Encoding ascii
+          Get-Content dist/SHA256SUMS.txt
+
+      - name: Attach them to the release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload ${{ github.ref_name }} (Get-ChildItem dist/*.exe, dist/SHA256SUMS.txt | ForEach-Object FullName) --clobber

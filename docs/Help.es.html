@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Plain para Windows</title>
+<style>
+  :root { color-scheme: light dark; --fg: #1b1a17; --muted: #5e5c53; --bg: #fdfdfb; --card: #f2f1ed; --accent: #1f6fb2; --keep: #9a6b15; --line: #dedcd5; }
+  @media (prefers-color-scheme: dark) { :root { --fg: #edebe3; --muted: #a7a49a; --bg: #1e1e1b; --card: #2e2d27; --accent: #6fb0e8; --keep: #e0ae52; --line: #3a3932; } }
+  body { margin: 0; font: 15px/1.55 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; color: var(--fg); background: var(--bg); }
+  main { max-width: 760px; margin: 0 auto; padding: 40px 24px 80px; }
+  h1 { font-size: 30px; margin: 0 0 4px; } h1 small { display: block; font-size: 15px; font-weight: 400; color: var(--muted); }
+  h2 { font-size: 20px; margin: 36px 0 10px; padding-top: 12px; border-top: 1px solid var(--line); }
+  .muted { color: var(--muted); }
+  code, pre { font: 13px "Cascadia Mono", Consolas, ui-monospace, monospace; }
+  pre { background: var(--card); padding: 12px 14px; border-radius: 8px; overflow-x: auto; }
+  .card { background: var(--card); border-radius: 10px; padding: 14px 16px; margin: 12px 0; }
+  .keep { border-left: 4px solid var(--keep); }
+  nav a { margin-right: 14px; color: var(--accent); text-decoration: none; } a { color: var(--accent); }
+  table { border-collapse: collapse; width: 100%; margin: 8px 0 16px; }
+  td, th { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 13px; }
+  kbd { font: 12px "Cascadia Mono", Consolas, monospace; background: var(--card); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 1px 5px; }
+</style></head><body><main>
+
+<h1>Plain para Windows</h1>
+<p class="lead">Abre archivos de Word, Excel y PowerPoint, edita lo esencial y nunca daña lo que no entiende.</p>
+
+<p><strong>Nota:</strong> el programa está en inglés. Esta página explica en español lo que hace y cómo usarlo.
+Traducir la ventana entera es un trabajo que aún no se ha hecho, y decirlo claramente es mejor que dejarle
+descubrirlo al abrirlo.</p>
+
+<h2>La promesa</h2>
+<p>Cualquier editor que abre un .docx lo lee según su propia idea de lo que es un documento, y vuelve a
+escribir esa idea. Lo que no cabe en ella desaparece en silencio: el gráfico, la macro, los cambios
+registrados, el encabezado que nadie miró.</p>
+<p>Plain abre el archivo como lo que realmente es, un paquete de partes, y vuelve a escribir cada parte que no
+editó con los mismos bytes que encontró. Abra un archivo, guárdelo sin cambiar nada y obtendrá el mismo archivo,
+byte por byte. Eso es algo que una prueba puede comprobar, y se comprueba en cada compilación.</p>
+<p>La barra de estado lo dice cada vez que guarda: <em>12 partes leídas, 6 mostradas, 6 conservadas byte
+por byte</em>.</p>
+
+<h2>Qué edita</h2>
+<p><strong>Hojas de cálculo.</strong> Celdas, texto y fórmulas en todas las hojas. Inserte o elimine filas y
+columnas y todas las fórmulas del libro se reescriben para que sigan significando lo mismo. Ordene y filtre
+filas, quite filas repetidas, divida una columna, dé color, alineación y bordes a las celdas, y pregunte a
+cualquier celda qué lee y quién la lee.</p>
+<p><strong>Documentos.</strong> Párrafos, títulos y listas, tablas, comentarios y cambios registrados que puede
+aceptar o rechazar. Buscar y reemplazar. Encabezados y pies de página. Enlaces.</p>
+<p><strong>Presentaciones.</strong> El texto de cada diapositiva, las notas del presentador, y diapositivas que
+puede añadir, quitar y reordenar.</p>
+
+<h2>Qué no hace, y lo dice</h2>
+<p>Plain no dibuja gráficos, ni imágenes dentro de documentos, ni SmartArt, ni diseños complejos, y nunca
+finge hacerlo. Esas partes aparecen en la lista lateral y se escriben de vuelta intactas, así que un archivo
+editado en Plain se sigue abriendo igual en Office.</p>
+<p>No tiene motor de macros: una macro sobrevive al guardado, pero Plain no la ejecuta. Y no se ha probado
+nunca contra Microsoft Office, solo contra el formato y contra LibreOffice como lector independiente.</p>
+
+<h2>Antes de enviarlo</h2>
+<p>Una lista de lo que viaja con un archivo sin que usted lo pretenda: quién lo escribió, comentarios, cambios
+registrados, hojas y filas ocultas, notas del presentador. Quita solo lo que usted marque, y dice claramente que
+solo encuentra lo que sabe buscar. Es una lista, no una promesa de que el archivo sea seguro.</p>
+
+<h2>Privacidad</h2>
+<p>Sin cuenta, sin nube, sin telemetría. La única petición de red que hace Plain es una consulta diaria a GitHub
+para saber si hay una versión más nueva; no envía ningún identificador ni nada sobre sus archivos, y no descarga
+ni instala nada por su cuenta. Puede desactivarla en la configuración, y entonces Plain no hace ninguna petición
+de red. La versión de consola nunca consulta.</p>
+
+<h2>Modo portátil</h2>
+<p>Ponga un archivo vacío llamado <code>plain-portable</code> junto al ejecutable y Plain guardará todo en una
+carpeta <code>Plain</code> a su lado: la configuración, los archivos recientes y las copias de trabajo sin
+guardar. Así no deja nada en el equipo, que es lo que se quiere en una memoria USB o en un ordenador ajeno.</p>
+
+<h2>Teclas</h2>
+<p>Pulse <strong>F1</strong> dentro del programa para ver la lista completa.</p>
+
+<h2>No está firmado</h2>
+<p>Windows le avisará de un editor desconocido: elija <strong>Más información</strong> y luego <strong>Ejecutar
+de todas formas</strong>. No está firmado porque un certificado cuesta dinero que este programa no gana. Desde la
+versión 1.4.2 los ejecutables se compilan en un servidor público a partir de un commit que cualquiera puede leer,
+y se publica un archivo <code>SHA256SUMS.txt</code> para comprobar lo que ha descargado.</p>
+
+<p class="small">Hecho por Keith Adler. Libre, licencia MIT.
+<a href="https://github.com/keithadler/plainwin">github.com/keithadler/plainwin</a></p>
+
+</main></body></html>
