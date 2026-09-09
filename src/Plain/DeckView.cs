@@ -18,7 +18,10 @@ public sealed class DeckView : Grid, IFindable
     private readonly StackPanel _canvas = new() { Margin = new Thickness(30, 26, 30, 30), MaxWidth = 720 };
     private Slide _current;
 
-    public event Action<Action>? Edited;
+    public event Action<Edit>? Edited;
+
+    /// <summary>Say an edit happened. A step that knows how to repeat itself passes redo as well.</summary>
+    private void Raise(Action undo, Action? redo = null) => Edited?.Invoke(new Edit(undo, redo));
     public Slide Current => _current;
     public bool FlattenedSomething { get; private set; }
 
@@ -137,7 +140,7 @@ public sealed class DeckView : Grid, IFindable
                     if (edited.Text == was) return;
                     if (!slide.SetLine(shapeIndex, lineIndex, edited.Text)) FlattenedSomething = true;
                     BuildRail();
-                    Edited?.Invoke(() =>
+                    Raise(() =>
                     {
                         slide.SetLine(shapeIndex, lineIndex, was);
                         BuildRail();

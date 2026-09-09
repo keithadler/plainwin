@@ -96,7 +96,11 @@ def spreadsheet():
     q2_total = sum(l[2] for l in lines)
     changes = [l[2] - l[1] for l in lines]
 
-    rows = [row([cell("Pine Street Holdings", "ttl")]),
+    # A heading joined across the width, which is what a real sheet looks like and what Plain has to draw as one cell.
+    joined = ('<table:table-cell table:style-name="ttl" table:number-columns-spanned="5" table:number-rows-spanned="1" '
+              'office:value-type="string"><text:p>Pine Street Holdings</text:p></table:table-cell>'
+              '<table:covered-table-cell table:number-columns-repeated="4"/>')
+    rows = [row([joined]),
             row([cell("Revenue by line, quarter ending 30 June")]),
             row([]),
             row([cell("Item", "hdr"), cell("Q1", "hdr"), cell("Q2", "hdr"), cell("Change", "hdr"), cell("Share", "hdr")])]

@@ -383,6 +383,7 @@ public sealed class Sheet
         {
             if (_data is not null) return _data;
             _widths = null;
+            _merges = null;
             _rowIndex = null;
             _extent = null;
             _doc = Xml.Parse(_book.Package.Read(PartName));
@@ -531,6 +532,46 @@ public sealed class Sheet
             view.AddFirst(pane);   // pane is the first child of a sheetView
         }
         _dirty = true;
+    }
+
+    /// <summary>
+    /// The blocks of cells this sheet joins together. A heading across four columns is one cell in the file with a
+    /// note saying it covers A1:D1, and the other three are empty. Drawing them as four cells with a line between
+    /// them makes a real sheet look wrong, and clicking the empty ones looks broken.
+    /// </summary>
+    public IReadOnlyList<(CellRef From, CellRef To)> Merges
+    {
+        get
+        {
+            if (_merges is not null) return _merges;
+            var list = new List<(CellRef, CellRef)>();
+            foreach (var m in Data.Parent!.Element(D.Sheet + "mergeCells")?.Elements(D.Sheet + "mergeCell")
+                              ?? Enumerable.Empty<XElement>())
+            {
+                var span = (string?)m.Attribute("ref");
+                if (span is null) continue;
+                var ends = span.Split(':');
+                if (ends.Length != 2) continue;
+                if (!CellRef.TryParse(ends[0], out var from) || !CellRef.TryParse(ends[1], out var to)) continue;
+                list.Add((new CellRef(Math.Min(from.Column, to.Column), Math.Min(from.Row, to.Row)),
+                          new CellRef(Math.Max(from.Column, to.Column), Math.Max(from.Row, to.Row))));
+            }
+            return _merges = list;
+        }
+    }
+
+    private IReadOnlyList<(CellRef From, CellRef To)>? _merges;
+
+    /// <summary>
+    /// The block this cell belongs to, if any. The top left of a block holds the value; the rest are along for the
+    /// ride, so clicking one of them should select the block and typing should go to the corner that holds it.
+    /// </summary>
+    public (CellRef From, CellRef To)? MergeAt(CellRef cell)
+    {
+        foreach (var (from, to) in Merges)
+            if (cell.Column >= from.Column && cell.Column <= to.Column
+             && cell.Row >= from.Row && cell.Row <= to.Row) return (from, to);
+        return null;
     }
 
     /// <summary>How wide this column has to be for its longest value to fit, in the same character units.</summary>

@@ -22,11 +22,23 @@ public sealed class WorkbookView : Grid, IFindable
     private SheetView _current = null!;
 
     public event Action<CellRef, Cell>? SelectionChanged;
-    public event Action<Action>? Edited;
+    public event Action<Edit>? Edited;
     public event Action<GridEdit, int>? GridChangeRequested;
     public event Action<int, int, int, int, int, bool>? SortRequested;
+    public event Action<int, int>? FilterRequested;
+
+    public bool Filtering => _current.Filtering;
+    public string FilterSaid => _current.FilterSaid;
+    public void Filter(int column, string text, int firstRow) => _current.Filter(column, text, firstRow);
+    public void ClearFilter() => _current.ClearFilter();
 
     public Sheet CurrentSheet => _current.Sheet;
+
+    /// <summary>What the selection adds up to, for the status bar.</summary>
+    public string Summary() => _current.Summary();
+
+    /// <summary>Go to a cell by name.</summary>
+    public bool GoTo(string reference) => _current.GoTo(reference);
 
     /// <summary>Draw the sheet again after something changed underneath it, and forget what was cached.</summary>
     public void Redraw() => _current.Reload();
@@ -72,9 +84,10 @@ public sealed class WorkbookView : Grid, IFindable
         {
             grid = new SheetView(sheet);
             grid.SelectionChanged += (reference, cell) => SelectionChanged?.Invoke(reference, cell);
-            grid.Edited += undo => Edited?.Invoke(undo);
+            grid.Edited += edit => Edited?.Invoke(edit);
             grid.GridChangeRequested += (edit, at) => GridChangeRequested?.Invoke(edit, at);
             grid.SortRequested += (t, b, l, r, key, up) => SortRequested?.Invoke(t, b, l, r, key, up);
+            grid.FilterRequested += (column, row) => FilterRequested?.Invoke(column, row);
             _grids[sheet] = grid;
         }
         _current = grid;

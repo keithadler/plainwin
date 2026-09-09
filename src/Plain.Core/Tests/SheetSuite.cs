@@ -171,6 +171,32 @@ public static class SheetSuite
                 PlainFile.Read(ffile.Package.ToBytes(), ff).Workbook is not null);
         }
 
+        // ---- joined blocks ----
+        {
+            var corpus = Environment.GetEnvironmentVariable("PLAIN_CORPUS");
+            var demo = corpus is not null ? System.IO.Path.Combine(corpus, "quarter.xlsx") : null;
+            if (demo is not null && File.Exists(demo))
+            {
+                var ms = PlainFile.Open(demo).Workbook!.Sheets[0];
+                s.Check("a joined heading is found", ms.Merges.Count >= 1);
+                s.Check("it covers more than one cell",
+                    ms.Merges[0].To.Column > ms.Merges[0].From.Column || ms.Merges[0].To.Row > ms.Merges[0].From.Row);
+                s.Check("a cell inside it belongs to it", ms.MergeAt(new CellRef(3, 1)) is not null);
+                s.Check("the corner belongs to it too", ms.MergeAt(new CellRef(1, 1)) is not null);
+                s.Check("and it names the corner that holds the value",
+                    ms.MergeAt(new CellRef(3, 1))!.Value.From == new CellRef(1, 1));
+                s.Check("a cell outside it does not", ms.MergeAt(new CellRef(1, 5)) is null);
+            }
+            else s.Check("no demo folder set (PLAIN_CORPUS); skipping the joined block checks", true);
+
+            if (!Fixtures.Missing(s, "sheet.xlsx"))
+            {
+                var plainSheet = PlainFile.Open(Fixtures.Copy("sheet.xlsx")).Workbook!.Sheets[0];
+                s.Check("a sheet with nothing joined says so", plainSheet.Merges.Count == 0);
+                s.Check("and no cell belongs to a block", plainSheet.MergeAt(new CellRef(1, 1)) is null);
+            }
+        }
+
         return s;
     }
 

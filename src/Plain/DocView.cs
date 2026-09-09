@@ -23,7 +23,10 @@ public sealed class DocView : Grid, IFindable
     private readonly Document _doc;
     private readonly ObservableCollection<object> _rows = new();
 
-    public event Action<Action>? Edited;
+    public event Action<Edit>? Edited;
+
+    /// <summary>Say an edit happened. A step that knows how to repeat itself passes redo as well.</summary>
+    private void Raise(Action undo, Action? redo = null) => Edited?.Invoke(new Edit(undo, redo));
 
     /// <summary>The block the caret is in, so a format button knows what to act on.</summary>
     public int? FocusedBlock { get; private set; }
@@ -149,7 +152,7 @@ public sealed class DocView : Grid, IFindable
     internal void Apply(int index, string text, string was)
     {
         if (!_doc.SetText(index, text)) FlattenedSomething = true;
-        Edited?.Invoke(() =>
+        Raise(() =>
         {
             _doc.SetText(index, was);
             Find(index)?.Restore(was);

@@ -37,7 +37,10 @@ public sealed class SheetView : Grid
     private int _lastColumn = 40, _lastRow = 200;
 
     public event Action<CellRef, Cell>? SelectionChanged;
-    public event Action<Action>? Edited;
+    public event Action<Edit>? Edited;
+
+    /// <summary>Say an edit happened. A step that knows how to repeat itself passes redo as well.</summary>
+    private void Raise(Action undo, Action? redo = null) => Edited?.Invoke(new Edit(undo, redo));
 
     public Sheet Sheet => _sheet;
     public CellRef Selected => _selected;
@@ -48,6 +51,48 @@ public sealed class SheetView : Grid
         Math.Max(_anchor.Column, _selected.Column), Math.Max(_anchor.Row, _selected.Row));
 
     public bool HasRange => _anchor != _selected;
+
+    /// <summary>
+    /// What is in the selection, said the way a person would say it: how many numbers, what they add up to, and
+    /// the average. This is the question a spreadsheet is usually opened to answer, and answering it in the status
+    /// bar means not having to type a formula into an empty cell and then delete it again.
+    /// </summary>
+    public string Summary()
+    {
+        var (left, top, right, bottom) = Range;
+        long cells = (long)(right - left + 1) * (bottom - top + 1);
+        // A whole-column selection is millions of cells; reading them all to say "0 numbers" helps nobody.
+        if (cells > 200_000) return "";
+
+        int numbers = 0, filled = 0;
+        double total = 0, low = double.MaxValue, high = double.MinValue;
+        for (int r = top; r <= bottom; r++)
+            for (int c = left; c <= right; c++)
+            {
+                var cell = Get(new CellRef(c, r));
+                if (cell.Kind == CellKind.Empty) continue;
+                filled++;
+                if (!double.TryParse(cell.Raw, NumberStyles.Float, CultureInfo.InvariantCulture, out var value)) continue;
+                numbers++;
+                total += value;
+                if (value < low) low = value;
+                if (value > high) high = value;
+            }
+
+        if (numbers == 0) return filled == 0 ? "" : $"{filled} filled";
+        if (numbers == 1) return $"1 number, {Show(total)}";
+        return $"{numbers} numbers, sum {Show(total)}, average {Show(total / numbers)}, "
+             + $"lowest {Show(low)}, highest {Show(high)}";
+    }
+
+    /// <summary>Enough decimals to be useful, not so many that a status bar turns into a wall of digits.</summary>
+    private static string Show(double value)
+    {
+        double rounded = Math.Round(value, 4);
+        return rounded == Math.Floor(rounded) && Math.Abs(rounded) < 1e15
+            ? ((long)rounded).ToString("#,##0", CultureInfo.CurrentCulture)
+            : rounded.ToString("#,##0.####", CultureInfo.CurrentCulture);
+    }
 
     public SheetView(Sheet sheet)
     {
@@ -134,10 +179,70 @@ public sealed class SheetView : Grid
     {
         double y = 0;
         int frozen = FrozenRows;
-        for (int r = 1; r <= frozen && y < height; r++, y += RowHeight) yield return (r, y);
-        for (int r = Math.Max(_firstRow, frozen + 1); r <= _lastRow && y < height; r++, y += RowHeight)
+        for (int r = 1; r <= frozen && y < height; r++, y += RowHeight)
+        {
+            if (_hidden.Contains(r)) continue;
             yield return (r, y);
+        }
+        for (int r = Math.Max(_firstRow, frozen + 1); r <= _lastRow && y < height; r++)
+        {
+            if (_hidden.Contains(r)) continue;
+            yield return (r, y);
+            y += RowHeight;
+        }
     }
+
+    /// <summary>
+    /// Rows hidden because they do not match what was filtered for. This is a way of looking at the sheet, not a
+    /// change to it: nothing is written to the file, hiding a row never deletes anything, and clearing the filter
+    /// puts everything back. A filter that hid rows in the file would be a different and much more dangerous
+    /// feature, so this one deliberately is not that.
+    /// </summary>
+    private readonly HashSet<int> _hidden = new();
+    private string _filterText = "";
+    private int _filterColumn;
+
+    public bool Filtering => _filterColumn > 0;
+
+    /// <summary>What is being filtered for, to say so in the status bar.</summary>
+    public string FilterSaid => Filtering
+        ? $"Showing the {CountShown()} rows where column {CellRef.ColumnName(_filterColumn)} has \"{_filterText}\". "
+        + $"{_hidden.Count} hidden."
+        : "";
+
+    private int CountShown()
+    {
+        int last = Math.Max(_sheet.Extent.Row, 1);
+        return Math.Max(0, last - _hidden.Count);
+    }
+
+    /// <summary>
+    /// Hide every row whose cell in this column does not contain the text. An empty text clears the filter.
+    /// Rows above the first filled row are left alone, so a heading does not vanish.
+    /// </summary>
+    public void Filter(int column, string text, int firstRow)
+    {
+        _hidden.Clear();
+        _filterColumn = 0;
+        _filterText = "";
+
+        if (text.Trim().Length > 0)
+        {
+            _filterColumn = column;
+            _filterText = text.Trim();
+            int last = _sheet.Extent.Row;
+            for (int r = Math.Max(1, firstRow); r <= last; r++)
+            {
+                var shown = Get(new CellRef(column, r)).Display;
+                if (shown.IndexOf(_filterText, StringComparison.CurrentCultureIgnoreCase) < 0) _hidden.Add(r);
+            }
+        }
+
+        _firstRow = Math.Max(FrozenRows + 1, 1);
+        Reload();
+    }
+
+    public void ClearFilter() => Filter(0, "", 1);
 
     /// <summary>How many rows are held still, never so many that there is no room left to scroll in.</summary>
     internal int FrozenRows
@@ -179,6 +284,9 @@ public sealed class SheetView : Grid
 
     public void Select(CellRef reference, bool extend)
     {
+        // A joined block is one cell to a person, so land on the corner that holds the value.
+        if (!extend && _sheet.MergeAt(reference) is { } block) reference = block.From;
+
         _selected = reference;
         if (!extend) _anchor = reference;
         EnsureVisible(reference);
@@ -227,6 +335,17 @@ public sealed class SheetView : Grid
         {
             switch (e.Key)
             {
+                case Key.Up: Jump(0, -1, shift); e.Handled = true; return;
+                case Key.Down: Jump(0, 1, shift); e.Handled = true; return;
+                case Key.Left: Jump(-1, 0, shift); e.Handled = true; return;
+                case Key.Right: Jump(1, 0, shift); e.Handled = true; return;
+                case Key.Home: Select(new CellRef(1, 1), shift); e.Handled = true; return;
+                case Key.End:
+                {
+                    var end = _sheet.Extent;
+                    Select(new CellRef(Math.Max(1, end.Column), Math.Max(1, end.Row)), shift);
+                    e.Handled = true; return;
+                }
                 case Key.C: Copy(); e.Handled = true; return;
                 case Key.X: Copy(); ClearRange(); e.Handled = true; return;
                 case Key.V: Paste(); e.Handled = true; return;
@@ -326,6 +445,9 @@ public sealed class SheetView : Grid
     /// <summary>Put a row or column in, or take one out, where the selection is.</summary>
     public event Action<GridEdit, int>? GridChangeRequested;
 
+    /// <summary>Asked to filter on a column; the window asks for the text, because it owns the dialogs.</summary>
+    public event Action<int, int>? FilterRequested;
+
     /// <summary>Asked to sort the selection by a column; the window does it, because it owns undo and the message.</summary>
     public event Action<int, int, int, int, int, bool>? SortRequested;
 
@@ -371,6 +493,12 @@ public sealed class SheetView : Grid
             menu.Items.Add(entry);
         }
         menu.Items.Add(new Separator());
+        var filter = new MenuItem { Header = "Show only rows where this column..." };
+        filter.Click += (_, _) => FilterRequested?.Invoke(Range.Left, Range.Top);
+        menu.Items.Add(filter);
+        menu.Opened += (_, _) =>
+            filter.Header = Filtering ? "Show every row again" : "Show only rows where this column...";
+        menu.Items.Add(new Separator());
         SortItem("Sort these rows by this column", true);
         SortItem("Sort these rows by this column, backwards", false);
         menu.Items.Add(new Separator());
@@ -385,7 +513,9 @@ public sealed class SheetView : Grid
             _sheet.SetFrozenRows(want);
             _firstRow = Math.Max(want + 1, _firstRow);
             Redraw();
-            Edited?.Invoke(() => { _sheet.SetFrozenRows(before); Redraw(); });
+            Edited?.Invoke(new Edit(
+                () => { _sheet.SetFrozenRows(before); Redraw(); },
+                () => { _sheet.SetFrozenRows(want); Redraw(); }));
         };
         menu.Items.Add(freeze);
         menu.Opened += (_, _) =>
@@ -502,6 +632,47 @@ public sealed class SheetView : Grid
         }
     }
 
+    /// <summary>
+    /// Move the way Ctrl with an arrow moves in a spreadsheet: to the far end of the run of filled cells you are
+    /// in, or, if the next cell is empty, across the gap to the next thing there is. It is how you get to the
+    /// bottom of ten thousand rows without holding a key down.
+    /// </summary>
+    private void Jump(int dx, int dy, bool extend)
+    {
+        int column = _selected.Column, row = _selected.Row;
+        bool Filled(int c, int r) => c >= 1 && r >= 1 && c <= 16384 && r <= 1048576
+                                     && Get(new CellRef(c, r)).Kind != CellKind.Empty;
+
+        int lastColumn = column, lastRow = row;
+        bool startedFilled = Filled(column, row);
+        // A run of filled cells ends at the last filled one; a gap ends at the first filled one.
+        for (int steps = 0; steps < 200_000; steps++)
+        {
+            int nextColumn = column + dx, nextRow = row + dy;
+            if (nextColumn < 1 || nextRow < 1 || nextColumn > 16384 || nextRow > 1048576) break;
+
+            bool next = Filled(nextColumn, nextRow);
+            column = nextColumn; row = nextRow;
+            if (startedFilled) { if (!next) { column -= dx; row -= dy; break; } lastColumn = column; lastRow = row; }
+            else if (next) break;
+        }
+
+        // Never wander past where the sheet has anything, or a stray keystroke lands you at row a million.
+        var extent = _sheet.Extent;
+        column = Math.Clamp(column, 1, Math.Max(1, Math.Max(extent.Column, _lastColumn)));
+        row = Math.Clamp(row, 1, Math.Max(1, Math.Max(extent.Row, _lastRow)));
+        Select(new CellRef(column, row), extend);
+    }
+
+    /// <summary>Go to a cell by name, for Ctrl+G. False when that is not a cell reference.</summary>
+    public bool GoTo(string reference)
+    {
+        if (!CellRef.TryParse(reference.Trim().Replace("$", ""), out var cell)) return false;
+        Select(cell);
+        Focus();
+        return true;
+    }
+
     private void CancelEdit() { _editor.Visibility = Visibility.Collapsed; Focus(); }
 
     private void CommitEditor()
@@ -535,13 +706,21 @@ public sealed class SheetView : Grid
         AfterChange();
 
         var undoTo = before;
+        var redoTo = changes.ToList();
         var landOn = _selected;
-        Edited?.Invoke(() =>
-        {
-            foreach (var (cell, was) in undoTo) _sheet.Set(cell, was);
-            AfterChange();
-            Select(landOn);
-        });
+        Edited?.Invoke(new Edit(
+            () =>
+            {
+                foreach (var (cell, was) in undoTo) _sheet.Set(cell, was);
+                AfterChange();
+                Select(landOn);
+            },
+            () =>
+            {
+                foreach (var (cell, value) in redoTo) _sheet.Set(cell, value);
+                AfterChange();
+                Select(landOn);
+            }));
     }
 
     private void AfterChange()
@@ -587,7 +766,11 @@ public sealed class SheetView : Grid
 
                 foreach (var (row, y) in v.VisibleRows(h))
                 {
-                    var cell = v.Get(new CellRef(column, row));
+                    var here = new CellRef(column, row);
+                    // Joined blocks are drawn after the gridlines, so no line runs through the middle of one.
+                    if (v._sheet.MergeAt(here) is not null) continue;
+
+                    var cell = v.Get(here);
                     if (cell.Display.Length == 0) continue;
 
                     bool number = cell.Kind is CellKind.Number or CellKind.Formula or CellKind.Boolean
@@ -598,11 +781,12 @@ public sealed class SheetView : Grid
                     var brush = cell.Kind == CellKind.Error ? Brushes.IndianRed
                               : uncomputed ? App.B("Ink3")
                               : App.B("Ink");
+                    double drawWidth = cw;
                     var text = v.Text(cell.Display, brush);
-                    text.MaxTextWidth = Math.Max(4, cw - 10);
+                    text.MaxTextWidth = Math.Max(4, drawWidth - 10);
                     text.MaxTextHeight = RowHeight;
                     text.Trimming = TextTrimming.CharacterEllipsis;
-                    double tx = number ? x + cw - 5 - text.Width : x + 5;
+                    double tx = number ? x + drawWidth - 5 - text.Width : x + 5;
                     dc.DrawText(text, new Point(Math.Max(x + 5, tx), y + 4));
                 }
             }
@@ -614,6 +798,37 @@ public sealed class SheetView : Grid
             {
                 double edge = Snap(frozenHere * RowHeight);
                 dc.DrawLine(new Pen(App.B("Ink3"), 1.5), new Point(0, edge), new Point(w, edge));
+            }
+
+            // Joined blocks: paint over the grid, put the border back round the outside, and write the value once
+            // across the whole width. Excel shows a merged heading as one cell and so should this.
+            foreach (var (from, to) in v._sheet.Merges)
+            {
+                double x1 = double.NaN, x2 = double.NaN, y1 = double.NaN, y2 = double.NaN;
+                foreach (var (column, cx, cw) in v.VisibleColumns(w))
+                {
+                    if (column == from.Column) x1 = cx;
+                    if (column == to.Column) x2 = cx + cw;
+                }
+                foreach (var (row, cy) in v.VisibleRows(h))
+                {
+                    if (row == from.Row) y1 = cy;
+                    if (row == to.Row) y2 = cy + RowHeight;
+                }
+                if (double.IsNaN(x1) || double.IsNaN(x2) || double.IsNaN(y1) || double.IsNaN(y2)) continue;
+
+                var area = new Rect(Snap(x1), Snap(y1), Math.Max(1, x2 - x1), Math.Max(1, y2 - y1));
+                dc.DrawRectangle(App.B("Surface"), null, area);
+                dc.DrawLine(line, new Point(area.Right, area.Top), new Point(area.Right, area.Bottom));
+                dc.DrawLine(line, new Point(area.Left, area.Bottom), new Point(area.Right, area.Bottom));
+
+                var held = v.Get(from);
+                if (held.Display.Length == 0) continue;
+                var joinedText = v.Text(held.Display, App.B("Ink"));
+                joinedText.MaxTextWidth = Math.Max(4, area.Width - 10);
+                joinedText.MaxTextHeight = area.Height;
+                joinedText.Trimming = TextTrimming.CharacterEllipsis;
+                dc.DrawText(joinedText, new Point(area.Left + 5, area.Top + 4));
             }
 
             // The selection sits on top so its outline is never cut by a gridline. A range is tinted; the cell you
@@ -642,8 +857,11 @@ public sealed class SheetView : Grid
     /// <summary>A width change is an edit like any other: it dirties the file and Ctrl+Z puts the old width back.</summary>
     internal void NoteWidthChange(int column, double before)
     {
+        double now = _sheet.WidthChars(column);
         Redraw();
-        Edited?.Invoke(() => { _sheet.SetWidthChars(column, before); Redraw(); });
+        Edited?.Invoke(new Edit(
+            () => { _sheet.SetWidthChars(column, before); Redraw(); },
+            () => { _sheet.SetWidthChars(column, now); Redraw(); }));
     }
 
     private sealed class Strip : FrameworkElement

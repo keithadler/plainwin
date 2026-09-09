@@ -11,6 +11,12 @@ using Path = System.IO.Path;
 
 namespace Plain;
 
+/// <summary>Pushing a step that only knows how to undo itself, which most of them are.</summary>
+internal static class UndoStack
+{
+    public static void Push(this Stack<Edit> stack, Action undo) => stack.Push(new Edit(undo, null));
+}
+
 public partial class MainWindow : Window
 {
     private readonly List<OpenFile> _open = new();
@@ -27,7 +33,10 @@ public partial class MainWindow : Window
         public required PlainFile File { get; init; }
         public required UIElement View { get; init; }
         public required string FilePath { get; init; }
-        public Stack<Action> Undo { get; } = new();
+        public Stack<Edit> Undo { get; } = new();
+
+        /// <summary>Steps that have been undone and can be done again, emptied the moment something new is typed.</summary>
+        public Stack<Edit> Redo { get; } = new();
         public bool Dirty { get; set; }
         public bool Flattened { get; set; }
         public string Name => Path.GetFileName(FilePath);
@@ -269,9 +278,10 @@ public partial class MainWindow : Window
                     CellEditor.Text = cell.Formula ?? cell.Raw;
                     if (_active == entry) StatusStat.Text = Describe(entry);
                 };
-                bookView.Edited += undo => { entry.Undo.Push(undo); entry.Dirty = true; Refresh(); };
+                bookView.Edited += edit => { entry.Undo.Push(edit); entry.Redo.Clear(); entry.Dirty = true; Refresh(); };
                 bookView.GridChangeRequested += (edit, at) => ChangeGrid(entry, bookView, edit, at);
                 bookView.SortRequested += (t, b, l, r, key, up) => SortRows(entry, bookView, t, b, l, r, key, up);
+                bookView.FilterRequested += (column, row) => FilterRows(bookView, column, row);
                 break;
             }
             case FileKind.Document:
@@ -388,12 +398,20 @@ public partial class MainWindow : Window
             e.Handled = true;
             return;
         }
-        if (e.KeyboardDevice.Modifiers != ModifierKeys.Control) return;
+        // Control, and Control with Shift, which is how redo is spelled. Anything with Alt or Windows is not ours.
+        var held = e.KeyboardDevice.Modifiers;
+        if ((held & ModifierKeys.Control) == 0) return;
+        if ((held & (ModifierKeys.Alt | ModifierKeys.Windows)) != 0) return;
         switch (e.Key)
         {
             case Key.O: OnOpen(sender, e); e.Handled = true; break;
             case Key.S: OnSave(sender, e); e.Handled = true; break;
-            case Key.Z: OnUndo(sender, e); e.Handled = true; break;
+            case Key.Z:
+                // Ctrl+Shift+Z is redo on every other program, and so is Ctrl+Y.
+                if ((Keyboard.Modifiers & ModifierKeys.Shift) != 0) OnRedo(sender, e); else OnUndo(sender, e);
+                e.Handled = true; break;
+            case Key.Y: OnRedo(sender, e); e.Handled = true; break;
+            case Key.G: GoToCell(); e.Handled = true; break;
             case Key.W: CloseActive(); e.Handled = true; break;
             case Key.F: ShowFind(); e.Handled = true; break;
             case Key.H: ShowFind(replacing: true); e.Handled = true; break;
@@ -532,8 +550,79 @@ public partial class MainWindow : Window
     private void OnUndo(object sender, RoutedEventArgs e)
     {
         if (_active is null || _active.Undo.Count == 0) return;
-        _active.Undo.Pop()();
+        var step = _active.Undo.Pop();
+        step.Undo();
+
+        // A step that cannot say how to repeat itself makes everything after it unrepeatable too, so the pile of
+        // things waiting to be redone is thrown away rather than left to put things back in the wrong order.
+        if (step.CanRedo) _active.Redo.Push(step); else _active.Redo.Clear();
+
         _active.Dirty = true;    // whatever is on disk, the file in front of you has just changed again
+        Refresh();
+    }
+
+    /// <summary>
+    /// Ctrl+G: ask for a cell and go there. A sheet with ten thousand rows needs a way to get to one of them that
+    /// is not scrolling, and the answer everyone already knows is to type its name.
+    /// </summary>
+    private void GoToCell()
+    {
+        if (_active?.View is not WorkbookView book) return;
+
+        var asked = Prompt("Go to", "Which cell? For example B14.", CellRefText.Text);
+        if (asked is null) return;
+        if (!book.GoTo(asked)) Say($"\"{asked}\" is not a cell. A cell is a letter and a number, like B14.");
+    }
+
+    /// <summary>
+    /// Show only the rows whose cell in this column contains what you type. Nothing is written to the file: this is
+    /// a way of looking at the sheet, and clearing it puts every row back.
+    /// </summary>
+    private void FilterRows(WorkbookView view, int column, int firstRow)
+    {
+        if (view.Filtering) { view.ClearFilter(); Say("Showing every row again."); Refresh(); return; }
+
+        var asked = Prompt("Show only some rows",
+            $"Show only rows where column {Core.CellRef.ColumnName(column)} contains:", "");
+        if (asked is null) return;
+
+        view.Filter(column, asked, firstRow);
+        Say(view.Filtering ? view.FilterSaid : "Nothing matched, so every row is still showing.");
+        Refresh();
+    }
+
+    /// <summary>A one-line question, because a whole dialog file for one box is more than this needs.</summary>
+    private string? Prompt(string title, string question, string initial)
+    {
+        var box = new TextBox { Text = initial, Margin = new Thickness(0, 10, 0, 0), Padding = new Thickness(6, 4, 6, 4) };
+        var ok = new Button { Content = "Go", IsDefault = true, MinWidth = 76, Margin = new Thickness(0, 14, 8, 0) };
+        var cancel = new Button { Content = "Cancel", IsCancel = true, MinWidth = 76, Margin = new Thickness(0, 14, 0, 0) };
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+        buttons.Children.Add(ok); buttons.Children.Add(cancel);
+
+        var stack = new StackPanel { Margin = new Thickness(18) };
+        stack.Children.Add(new TextBlock { Text = question, TextWrapping = TextWrapping.Wrap });
+        stack.Children.Add(box);
+        stack.Children.Add(buttons);
+
+        var window = new Window
+        {
+            Title = title, Content = stack, Owner = this, SizeToContent = SizeToContent.Height, Width = 360,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner, ResizeMode = ResizeMode.NoResize,
+            Background = App.B("Chrome"), Foreground = App.B("Ink"),
+        };
+        ok.Click += (_, _) => { window.DialogResult = true; };
+        window.Loaded += (_, _) => { box.Focus(); box.SelectAll(); };
+        return window.ShowDialog() == true && box.Text.Trim().Length > 0 ? box.Text.Trim() : null;
+    }
+
+    private void OnRedo(object sender, RoutedEventArgs e)
+    {
+        if (_active is null || _active.Redo.Count == 0) return;
+        var step = _active.Redo.Pop();
+        step.Redo!();
+        _active.Undo.Push(step);
+        _active.Dirty = true;
         Refresh();
     }
 
@@ -1066,6 +1155,7 @@ public partial class MainWindow : Window
         SaveBtn.IsEnabled = _active?.Dirty == true;
         CopyBtn.IsEnabled = _active is not null;
         UndoBtn.IsEnabled = _active?.Undo.Count > 0;
+        RedoBtn.IsEnabled = _active?.Redo.Count > 0;
         SaveBtn.Content = _active?.Dirty == true ? "Save" : "Saved";
 
         ContextHint.Text = _active?.File.Kind switch
@@ -1281,7 +1371,10 @@ public partial class MainWindow : Window
         var sheet = view.CurrentSheet;
         int count = file.File.Workbook!.Sheets.Count;
         string where = count > 1 ? $"{sheet.Name} of {count} sheets" : sheet.Name;
-        return $"{where}, used to {sheet.Extent}";
+
+        // What the selection adds up to comes first, because it is the thing being looked at right now.
+        var summary = view.Summary();
+        return summary.Length > 0 ? $"{summary}   ·   {where}" : $"{where}, used to {sheet.Extent}";
     }
 
     private void BuildTabs()
