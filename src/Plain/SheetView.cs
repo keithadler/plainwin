@@ -503,6 +503,75 @@ public sealed class SheetView : Grid
         SortItem("Sort these rows by this column, backwards", false);
         menu.Items.Add(new Separator());
 
+        // How the cells look, and how tall and wide things are.
+        var look = new MenuItem { Header = "How these cells look" };
+        void Look(string text, Action what)
+        {
+            var entry = new MenuItem { Header = text };
+            entry.Click += (_, _) => what();
+            look.Items.Add(entry);
+        }
+        void Align(string text, string where)
+        {
+            Look(text, () =>
+            {
+                var cells = InRange().ToList();
+                var was = cells.Select(c => _sheet.AlignmentAt(c)).ToList();
+                _sheet.SetAlignment(cells, where, null);
+                AfterLook(cells, was);
+            });
+        }
+        Align("Left", "left");
+        Align("Centred", "center");
+        Align("Right", "right");
+        Align("However its style says", "general");
+        look.Items.Add(new Separator());
+        Look("Wrap the words onto more lines", () =>
+        {
+            var cells = InRange().ToList();
+            var was = cells.Select(c => _sheet.AlignmentAt(c)).ToList();
+            bool on = !_sheet.AlignmentAt(_selected).Wrap;
+            _sheet.SetAlignment(cells, null, on);
+            AfterLook(cells, was);
+        });
+        look.Items.Add(new Separator());
+        foreach (var (name, fill) in new[]
+                 { ("Yellow", "FFF3C4"), ("Green", "D9EAD3"), ("Blue", "DCE7F5"), ("Pink", "F7DDE3"), ("Grey", "EDEDED") })
+        {
+            var colour = fill;
+            Look(name + " behind them", () =>
+            {
+                var cells = InRange().ToList();
+                var was = cells.Select(c => _sheet.ColoursAt(c)).ToList();
+                _sheet.SetColours(cells, colour, null);
+                AfterColour(cells, was);
+            });
+        }
+        Look("No colour behind them", () =>
+        {
+            var cells = InRange().ToList();
+            var was = cells.Select(c => _sheet.ColoursAt(c)).ToList();
+            _sheet.SetColours(cells, "", null);
+            AfterColour(cells, was);
+        });
+        menu.Items.Add(look);
+
+        var freezeColumns = new MenuItem { Header = "Keep the columns left of this one on screen" };
+        freezeColumns.Click += (_, _) =>
+        {
+            int before = _sheet.FrozenColumns;
+            int want = before > 0 ? 0 : Math.Max(0, Range.Left - 1);
+            int rows = _sheet.FrozenRows;
+            _sheet.SetFrozen(want, rows);
+            _firstColumn = Math.Max(want + 1, _firstColumn);
+            Redraw();
+            Raise(() => { _sheet.SetFrozen(before, rows); Redraw(); },
+                  () => { _sheet.SetFrozen(want, rows); Redraw(); });
+        };
+        menu.Items.Add(freezeColumns);
+        menu.Opened += (_, _) => freezeColumns.Header = _sheet.FrozenColumns > 0
+            ? "Let every column scroll again" : "Keep the columns left of this one on screen";
+
         var freeze = new MenuItem { Header = "Keep the rows above this one on screen" };
         freeze.Click += (_, _) =>
         {
@@ -744,6 +813,18 @@ public sealed class SheetView : Grid
         new(text, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, bold ? BoldFace : Face, 12.5, brush,
             VisualTreeHelper.GetDpi(this).PixelsPerDip);
 
+    /// <summary>Six hex digits as a brush, or nothing when they are not six hex digits.</summary>
+    private static SolidColorBrush? Colour(string hex)
+    {
+        if (hex.Length != 6 || !hex.All(Uri.IsHexDigit)) return null;
+        try
+        {
+            return new SolidColorBrush(Color.FromRgb(
+                Convert.ToByte(hex[..2], 16), Convert.ToByte(hex[2..4], 16), Convert.ToByte(hex[4..], 16)));
+        }
+        catch { return null; }
+    }
+
     private sealed class Surface : FrameworkElement
     {
         private readonly SheetView _view;
@@ -771,6 +852,13 @@ public sealed class SheetView : Grid
                     if (v._sheet.MergeAt(here) is not null) continue;
 
                     var cell = v.Get(here);
+
+                    // A colour behind the cell is drawn whether or not there is anything in it, because an empty
+                    // cell someone coloured is still coloured.
+                    var (fill, inkColour) = v._sheet.ColoursAt(here);
+                    if (fill.Length == 6 && Colour(fill) is { } paint)
+                        dc.DrawRectangle(paint, null, new Rect(Snap(x) + 1, Snap(y) + 1, cw - 1, RowHeight - 1));
+
                     if (cell.Display.Length == 0) continue;
 
                     bool number = cell.Kind is CellKind.Number or CellKind.Formula or CellKind.Boolean
@@ -780,13 +868,24 @@ public sealed class SheetView : Grid
                     bool uncomputed = cell.Kind == CellKind.Formula && cell.Raw.Length == 0;
                     var brush = cell.Kind == CellKind.Error ? Brushes.IndianRed
                               : uncomputed ? App.B("Ink3")
+                              : inkColour.Length == 6 && Colour(inkColour) is { } chosen ? chosen
                               : App.B("Ink");
                     double drawWidth = cw;
                     var text = v.Text(cell.Display, brush);
                     text.MaxTextWidth = Math.Max(4, drawWidth - 10);
                     text.MaxTextHeight = RowHeight;
                     text.Trimming = TextTrimming.CharacterEllipsis;
-                    double tx = number ? x + drawWidth - 5 - text.Width : x + 5;
+                    // What the cell says about where it sits wins; a number falls back to the right, as it does
+                    // in every spreadsheet, and text to the left.
+                    var (where, wraps) = v._sheet.AlignmentAt(here);
+                    if (wraps) { text.MaxTextHeight = RowHeight; text.Trimming = TextTrimming.CharacterEllipsis; }
+                    double tx = where switch
+                    {
+                        "center" => x + (drawWidth - text.Width) / 2,
+                        "right" => x + drawWidth - 5 - text.Width,
+                        "left" => x + 5,
+                        _ => number ? x + drawWidth - 5 - text.Width : x + 5,
+                    };
                     dc.DrawText(text, new Point(Math.Max(x + 5, tx), y + 4));
                 }
             }
@@ -852,6 +951,48 @@ public sealed class SheetView : Grid
         }
 
         private static double Snap(double value) => Math.Round(value) + 0.5;
+    }
+
+    /// <summary>Every cell in the selection, which is what the look-changing menu items work on.</summary>
+    private IEnumerable<CellRef> InRange()
+    {
+        var (left, top, right, bottom) = Range;
+        for (int r = top; r <= bottom; r++)
+            for (int c = left; c <= right; c++)
+                yield return new CellRef(c, r);
+    }
+
+    /// <summary>Put alignment back the way it was, cell by cell, which is what undo needs.</summary>
+    private void AfterLook(List<CellRef> cells, List<(string Horizontal, bool Wrap)> was)
+    {
+        var now = cells.Select(c => _sheet.AlignmentAt(c)).ToList();
+        Redraw();
+        Raise(() =>
+        {
+            for (int i = 0; i < cells.Count; i++) _sheet.SetAlignment(new[] { cells[i] }, was[i].Horizontal, was[i].Wrap);
+            Redraw();
+        },
+        () =>
+        {
+            for (int i = 0; i < cells.Count; i++) _sheet.SetAlignment(new[] { cells[i] }, now[i].Horizontal, now[i].Wrap);
+            Redraw();
+        });
+    }
+
+    private void AfterColour(List<CellRef> cells, List<(string Background, string Ink)> was)
+    {
+        var now = cells.Select(c => _sheet.ColoursAt(c)).ToList();
+        Redraw();
+        Raise(() =>
+        {
+            for (int i = 0; i < cells.Count; i++) _sheet.SetColours(new[] { cells[i] }, was[i].Background, was[i].Ink);
+            Redraw();
+        },
+        () =>
+        {
+            for (int i = 0; i < cells.Count; i++) _sheet.SetColours(new[] { cells[i] }, now[i].Background, now[i].Ink);
+            Redraw();
+        });
     }
 
     /// <summary>A width change is an edit like any other: it dirties the file and Ctrl+Z puts the old width back.</summary>

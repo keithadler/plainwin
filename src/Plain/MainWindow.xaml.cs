@@ -282,6 +282,7 @@ public partial class MainWindow : Window
                 bookView.GridChangeRequested += (edit, at) => ChangeGrid(entry, bookView, edit, at);
                 bookView.SortRequested += (t, b, l, r, key, up) => SortRows(entry, bookView, t, b, l, r, key, up);
                 bookView.FilterRequested += (column, row) => FilterRows(bookView, column, row);
+                bookView.SheetChangeRequested += (what, at) => ChangeSheet(what, at);
                 break;
             }
             case FileKind.Document:
@@ -412,6 +413,11 @@ public partial class MainWindow : Window
                 e.Handled = true; break;
             case Key.Y: OnRedo(sender, e); e.Handled = true; break;
             case Key.G: GoToCell(); e.Handled = true; break;
+            // The shortcuts every word processor uses for where a paragraph sits.
+            case Key.L: AlignParagraph("left"); e.Handled = true; break;
+            case Key.E: AlignParagraph("centre"); e.Handled = true; break;
+            case Key.R: AlignParagraph("right"); e.Handled = true; break;
+            case Key.J: AlignParagraph("justify"); e.Handled = true; break;
             case Key.W: CloseActive(); e.Handled = true; break;
             case Key.F:
                 if ((Keyboard.Modifiers & ModifierKeys.Shift) != 0) OnFindInFolder(sender, e); else ShowFind();
@@ -619,6 +625,228 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
+    /// Where the paragraph the caret is in sits across the page. Ctrl+L, E, R and J, which is what every word
+    /// processor uses, so nobody has to look it up.
+    /// </summary>
+    private void AlignParagraph(string where)
+    {
+        if (_active?.View is not DocView view || _active.File.Document is not { } doc) return;
+        if (view.FocusedBlock is not { } index) { Say("Click into a paragraph first."); return; }
+
+        var was = doc.ParagraphAlignment(index);
+        if (!doc.SetParagraphAlignment(index, where)) { Say($"Plain does not know \"{where}\"."); return; }
+
+        _active.Undo.Push(new Edit(
+            () => { doc.SetParagraphAlignment(index, was); view.ShowAlignment(index); },
+            () => { doc.SetParagraphAlignment(index, where); view.ShowAlignment(index); }));
+        _active.Redo.Clear();
+        _active.Dirty = true;
+        view.ShowAlignment(index);
+        Say(where == "general" ? "That paragraph sits however its style says." : $"That paragraph is now {where}.");
+        Refresh();
+    }
+
+    /// <summary>
+    /// The lines along the top and bottom of every page. They are the part of a file people forget is there: a
+    /// header naming the client a template was written for travels with every copy, and nobody sees it on screen.
+    /// </summary>
+    private void OnBands(object sender, RoutedEventArgs e)
+    {
+        if (_active is null) return;
+        var bands = Core.HeaderFooter.All(_active.File);
+        if (bands.Count == 0)
+        {
+            MessageBox.Show(this, "This document has no headers or footers.", "Plain",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var boxes = new List<(TextBox Box, Core.HeaderFooter.Band Band)>();
+        var stack = new StackPanel { Margin = new Thickness(18) };
+        stack.Children.Add(new TextBlock
+        {
+            Text = "These run along every page. They are in the file whether or not anyone looks at them.",
+            TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 12),
+        });
+
+        foreach (var band in bands)
+        {
+            stack.Children.Add(new TextBlock
+            {
+                Text = $"{(band.IsHeader ? "Header" : "Footer")}, {band.Which}",
+                FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 8, 0, 4),
+            });
+            var box = new TextBox { Text = band.Text, Padding = new Thickness(6, 4, 6, 4), TextWrapping = TextWrapping.Wrap };
+            boxes.Add((box, band));
+            stack.Children.Add(box);
+        }
+
+        stack.Children.Add(new TextBlock
+        {
+            Text = "Changing these replaces the words and leaves how they look alone.",
+            TextWrapping = TextWrapping.Wrap, FontSize = 11.5, Foreground = App.B("Ink3"), Margin = new Thickness(0, 10, 0, 0),
+        });
+
+        var ok = new Button { Content = "Change them", IsDefault = true, MinWidth = 104, Margin = new Thickness(0, 16, 8, 0) };
+        var cancel = new Button { Content = "Leave it", IsCancel = true, MinWidth = 90, Margin = new Thickness(0, 16, 0, 0) };
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+        buttons.Children.Add(ok); buttons.Children.Add(cancel);
+        stack.Children.Add(buttons);
+
+        var window = new Window
+        {
+            Title = "Headers and footers", Content = new ScrollViewer { Content = stack }, Owner = this,
+            Width = 560, SizeToContent = SizeToContent.Height, MaxHeight = 560,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner, ResizeMode = ResizeMode.NoResize,
+            Background = App.B("Chrome"), Foreground = App.B("Ink"),
+        };
+        ok.Click += (_, _) => { window.DialogResult = true; };
+        if (window.ShowDialog() != true) return;
+
+        int changed = 0;
+        foreach (var (box, band) in boxes)
+            if (box.Text != band.Text && Core.HeaderFooter.Write(_active.File.Package, band.Part, box.Text)) changed++;
+
+        if (changed == 0) { Say("Nothing was changed."); return; }
+        _active.Dirty = true;
+        Say($"Changed {changed} of them. Save the file to write it back.");
+        Refresh();
+    }
+
+    /// <summary>
+    /// Every link in the file, with the words it wears beside where it actually goes. A link's text and its
+    /// destination are two different things, and a document is an easy place to hide that they disagree.
+    /// </summary>
+    private void OnLinks(object sender, RoutedEventArgs e)
+    {
+        if (_active is null) return;
+        var links = Core.Links.All(_active.File);
+
+        var stack = new StackPanel { Margin = new Thickness(18) };
+        stack.Children.Add(new TextBlock
+        {
+            Text = links.Count == 0 ? "There are no links in this file."
+                 : $"{links.Count} link{(links.Count == 1 ? "" : "s")}. What each one says, and where it goes.",
+            TextWrapping = TextWrapping.Wrap, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 12),
+        });
+
+        foreach (var link in links)
+        {
+            stack.Children.Add(new TextBlock
+            {
+                Text = $"{link.Where}: {(link.Text.Length == 0 ? "(no words)" : link.Text)}",
+                TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 0),
+            });
+
+            var row = new DockPanel { LastChildFill = true, Margin = new Thickness(0, 2, 0, 0) };
+            if (Core.Links.SafeToOpen(link.Target))
+            {
+                var open = new Button { Content = "Open", Style = (Style)FindResource("Flat"), Tag = link.Target };
+                DockPanel.SetDock(open, Dock.Right);
+                open.Click += (b, _) =>
+                {
+                    if (((Button)b).Tag is string target) UpdateCheck.OpenReleasePage(target);
+                };
+                row.Children.Add(open);
+            }
+            row.Children.Add(new TextBlock
+            {
+                Text = link.Target.Length == 0 ? "nowhere" : link.Target,
+                TextWrapping = TextWrapping.Wrap, FontSize = 11.5,
+                Foreground = link.External && !Core.Links.SafeToOpen(link.Target) ? Brushes.IndianRed : App.B("Ink2"),
+            });
+            stack.Children.Add(row);
+        }
+
+        if (links.Any(l => l.External && !Core.Links.SafeToOpen(l.Target)))
+            stack.Children.Add(new TextBlock
+            {
+                Text = "The ones in red are not ordinary web or mail addresses. Plain shows them and will not open them.",
+                TextWrapping = TextWrapping.Wrap, FontSize = 11.5, Foreground = App.B("Ink3"), Margin = new Thickness(0, 12, 0, 0),
+            });
+
+        var window = new Window
+        {
+            Title = "Links", Content = new ScrollViewer { Content = stack }, Owner = this,
+            Width = 620, Height = 460, WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Background = App.B("Chrome"), Foreground = App.B("Ink"),
+        };
+        window.ShowDialog();
+    }
+
+    /// <summary>
+    /// What changed between this file and another. Plain holds a file as the parts it is made of, so it can say
+    /// which pieces differ at all as well as which words did.
+    /// </summary>
+    private void OnCompare(object sender, RoutedEventArgs e)
+    {
+        if (_active is null) return;
+        CommitPendingEdit();
+
+        var picker = new OpenFileDialog
+        {
+            Title = $"Compare {_active.Name} with…",
+            Filter = "Word, Excel and PowerPoint|*.docx;*.docm;*.xlsx;*.xlsm;*.pptx;*.pptm|All files|*.*",
+        };
+        if (picker.ShowDialog(this) != true) return;
+
+        Core.Compare.Report report;
+        try { report = Core.Compare.Between(_active.File, PlainFile.Open(picker.FileName)); }
+        catch (Exception ex) { Say("Could not read that file: " + Explain(ex)); return; }
+
+        var stack = new StackPanel { Margin = new Thickness(18) };
+        stack.Children.Add(new TextBlock
+        {
+            Text = $"{report.Parts.Count} part{(report.Parts.Count == 1 ? "" : "s")} differ, {report.Same} the same.",
+            FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 4),
+        });
+        stack.Children.Add(new TextBlock
+        {
+            Text = $"{_active.Name}  ->  {Path.GetFileName(picker.FileName)}",
+            FontSize = 11.5, Foreground = App.B("Ink2"), Margin = new Thickness(0, 0, 0, 12),
+        });
+
+        if (report.Note is not null)
+            stack.Children.Add(new TextBlock
+            {
+                Text = report.Note, TextWrapping = TextWrapping.Wrap, Foreground = App.B("Ink3"),
+                FontSize = 11.5, Margin = new Thickness(0, 0, 0, 10),
+            });
+
+        foreach (var change in report.Text)
+            stack.Children.Add(new TextBlock
+            {
+                Text = $"{(change.Added ? "+" : "-")}  {change.Where}: {change.Text}",
+                TextWrapping = TextWrapping.Wrap, FontSize = 12,
+                Foreground = change.Added ? App.B("Accent") : App.B("Ink3"),
+                Margin = new Thickness(0, 0, 0, 2),
+            });
+
+        if (report.Text.Count == 0 && report.Parts.Count > 0)
+            stack.Children.Add(new TextBlock
+            {
+                Text = "The words are the same in both. What differs is in parts Plain does not read: formatting, "
+                     + "settings, or the bookkeeping a file keeps about itself.",
+                TextWrapping = TextWrapping.Wrap, Foreground = App.B("Ink2"),
+            });
+
+        foreach (var part in report.Parts)
+            stack.Children.Add(new TextBlock
+            {
+                Text = $"{part.How}: {part.Name}", FontSize = 11, Foreground = App.B("Ink3"),
+                Margin = new Thickness(0, 0, 0, 1),
+            });
+
+        var window = new Window
+        {
+            Title = "What changed", Content = new ScrollViewer { Content = stack }, Owner = this,
+            Width = 680, Height = 520, WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Background = App.B("Chrome"), Foreground = App.B("Ink"),
+        };
+        window.ShowDialog();
+    }
+
+    /// <summary>
     /// Which files in a folder hold the words. This only ever reads: it says which files and where, and then you
     /// open the ones that matter and change them yourself, one at a time, watching what happens. A tool that
     /// offered to change forty files at once would be asking for a great deal of trust for very little work saved.
@@ -683,6 +911,41 @@ public partial class MainWindow : Window
         };
         window.ShowDialog();
         Say(report.Hits.Count == 0 ? "Nothing found." : $"{report.Hits.Count} files hold it. Nothing was changed.");
+    }
+
+    /// <summary>
+    /// See the pages before printing them, laid out the way the printer will get them, on the paper and margins
+    /// chosen in settings. It is the same laying out that printing does, so what is on screen is what comes out;
+    /// a preview built a different way would be a picture of something else.
+    /// </summary>
+    private void OnPrintPreview(object sender, RoutedEventArgs e)
+    {
+        if (_active is null) return;
+        CommitPendingEdit();
+
+        var page = _settings.Page().Sensible();
+        // Points to the device-independent pixels WPF lays out in: 96 to the inch against the PDF's 72.
+        double width = page.WidthPoints * 96.0 / 72.0, height = page.HeightPoints * 96.0 / 72.0;
+        double margin = page.MarginPoints * 96.0 / 72.0;
+
+        var document = Printing.Build(_active.File, Path.GetFileNameWithoutExtension(_active.FilePath),
+                                      width - 2 * margin, height - 2 * margin);
+        document.PageWidth = width;
+        document.PageHeight = height;
+        document.PagePadding = new Thickness(margin);
+        document.ColumnWidth = width - 2 * margin;
+
+        // A page viewer rather than a scrolling one, because the point is to see where the pages break.
+        var host = new FlowDocumentPageViewer { Document = document, MinZoom = 25, MaxZoom = 400 };
+
+        var window = new Window
+        {
+            Title = $"Print preview: {_active.Name}  ({page.Paper}{(page.Landscape ? ", sideways" : "")})",
+            Content = host, Owner = this, Width = 900, Height = 720,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Background = App.B("Chrome"), Foreground = App.B("Ink"),
+        };
+        window.ShowDialog();
     }
 
     /// <summary>
@@ -764,6 +1027,53 @@ public partial class MainWindow : Window
         _active.Dirty = true;
         Say(string.Join(" ", did) + " Save the file to write it back.");
         Refresh();
+    }
+
+    /// <summary>
+    /// Adding, renaming, moving and taking out sheets. Renaming rewrites every formula that named the sheet, and
+    /// taking one out is refused while anything still reads it, so neither can leave a formula pointing at nothing.
+    /// Like any change of shape, it empties undo and builds the view again.
+    /// </summary>
+    private void ChangeSheet(string what, int at)
+    {
+        if (_active?.File.Workbook is not { } book) return;
+        if (at < 0 || at >= book.Sheets.Count) return;
+        var name = book.Sheets[at].Name;
+
+        Core.Sheets.Result outcome;
+        switch (what)
+        {
+            case "rename":
+            {
+                var asked = Prompt("Rename this sheet", $"What should {name} be called?", name);
+                if (asked is null) return;
+                outcome = Core.Sheets.Rename(book, at, asked);
+                break;
+            }
+            case "add":
+            {
+                var asked = Prompt("Add a sheet", "What should it be called?", "Sheet");
+                if (asked is null) return;
+                outcome = Core.Sheets.Add(book, asked, at + 1);
+                break;
+            }
+            case "earlier": outcome = Core.Sheets.Move(book, at + 1, at); break;
+            case "later": outcome = Core.Sheets.Move(book, at + 1, at + 2); break;
+            case "remove":
+            {
+                var answer = MessageBox.Show(this,
+                    $"Take {name} out of this workbook?\n\nWhat is on it stays in the file, unused, and Plain "
+                    + "will refuse if any formula still reads it.",
+                    "Plain", MessageBoxButton.YesNo, MessageBoxImage.Question);
+                if (answer != MessageBoxResult.Yes) return;
+                outcome = Core.Sheets.Remove(book, at);
+                break;
+            }
+            default: return;
+        }
+
+        if (outcome is Core.Sheets.Refused refused) { Say(refused.Reason); return; }
+        AfterShapeChange(((Core.Sheets.Done)outcome).What);
     }
 
     // ---------- the shape of a deck, and of a table ----------
@@ -1394,6 +1704,8 @@ public partial class MainWindow : Window
         foreach (var item in new[] { AddTableRowItem, RemoveTableRowItem })
             item.Visibility = hasTables ? Visibility.Visible : Visibility.Collapsed;
         ShapeSeparator.Visibility = isDeck || hasTables ? Visibility.Visible : Visibility.Collapsed;
+        BandsItem.Visibility = _active?.File.Document is not null ? Visibility.Visible : Visibility.Collapsed;
+        LinksItem.Visibility = _active is not null ? Visibility.Visible : Visibility.Collapsed;
         SaveBtn.Content = _active?.Dirty == true ? "Save" : "Saved";
 
         ContextHint.Text = _active?.File.Kind switch

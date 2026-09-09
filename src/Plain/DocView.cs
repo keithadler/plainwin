@@ -31,6 +31,13 @@ public sealed class DocView : Grid, IFindable
     /// <summary>The block the caret is in, so a format button knows what to act on.</summary>
     public int? FocusedBlock { get; private set; }
 
+    /// <summary>Read where a paragraph sits from the document again, so a change to it shows on screen.</summary>
+    public void ShowAlignment(int index)
+    {
+        foreach (var row in _rows.OfType<BlockLine>())
+            if (row.Index == index) { row.ReadAlignment(); return; }
+    }
+
     /// <summary>True once an edit flattened mixed formatting inside one block, so the app can say so honestly.</summary>
     public bool FlattenedSomething { get; private set; }
 
@@ -191,6 +198,25 @@ public sealed class DocView : Grid, IFindable
         public BlockLine(DocView view, Block block)
         {
             _view = view; Index = block.Index; Kind = block.Kind; _text = block.Text;
+            ReadAlignment();
+        }
+
+        private TextAlignment _align = TextAlignment.Left;
+
+        /// <summary>Where this paragraph sits across the page, as the document says.</summary>
+        public TextAlignment Align => _align;
+
+        /// <summary>Read where it sits from the document again, after it has been changed.</summary>
+        internal void ReadAlignment()
+        {
+            _align = _view._doc.ParagraphAlignment(Index) switch
+            {
+                "centre" => TextAlignment.Center,
+                "right" => TextAlignment.Right,
+                "justify" => TextAlignment.Justify,
+                _ => TextAlignment.Left,
+            };
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Align)));
         }
 
         public string Text
@@ -253,6 +279,7 @@ public sealed class DocView : Grid, IFindable
         private readonly DataTemplate _paragraph = (DataTemplate)System.Windows.Markup.XamlReader.Parse(
             "<DataTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'>" +
             "<TextBox Text='{Binding Text, Mode=TwoWay, UpdateSourceTrigger=LostFocus}' " +
+            "         TextAlignment='{Binding Align}' " +
             "         FontSize='{Binding FontSize}' FontWeight='{Binding Weight}' Margin='{Binding Indent}' " +
             "         TextBlock.LineHeight='{Binding LineHeight}' TextBlock.LineStackingStrategy='BlockLineHeight' " +
             "         BorderThickness='0' Background='Transparent' Padding='2,1' " +

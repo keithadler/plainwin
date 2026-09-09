@@ -61,6 +61,7 @@ public static class SelfTest
         ("hidden", HiddenSuite.Run),
         ("folder", FolderSuite.Run),
         ("sheets", SheetsSuite.Run),
+        ("docparts", DocPartsSuite.Run),
         ("updates", UpdatesSuite.Run),
         ("corpus", CorpusSuite.Run),
     };

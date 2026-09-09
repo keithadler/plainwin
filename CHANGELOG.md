@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.3.0, 2026-09-09
+
+**Sheets can be added, renamed, moved and taken out**, which slides could already do and sheets could not. Renaming rewrites every formula in the workbook that named the sheet, and says how many it changed; taking one out is refused while any formula still reads it.
+
+**Rows have a height**, as columns have a width, and **columns can be held still** as well as rows.
+
+**Cells can be aligned, made to wrap, and given colour** behind them and for their words. Right-click a selection for "How these cells look". Each change builds on the format the cell already has, so setting a colour does not throw away its number format.
+
+**See the pages before printing them**, laid out on the paper and margins chosen in settings, using the same laying out that printing does.
+
+**Headers and footers.** The lines along the top and bottom of every page: what they say, and a way to change the words. They are the part of a file people forget is there.
+
+**Where a paragraph sits.** Ctrl+L, Ctrl+E, Ctrl+R and Ctrl+J, and the document shows it.
+
+**Links, and where they actually go.** A link's words and its destination are two different things. Plain lists both side by side, and will only open ordinary web and mail addresses: anything else is shown in red and left alone.
+
+**Compare with another file.** What changed between two versions: which parts of the file differ at all, and which lines of text arrived or went. It compares what is there rather than guessing how one became the other.
+
+**Console twin.** `plain sheet`, `plain height`, `plain align`, `plain colour`, `plain band`, `plain links`, `plain compare`.
+
+939 checks, up from 843.
+
 ## 1.2.0, 2026-09-09
 
 **Sort was only half of it: rows can now be filtered too.** Show only the rows whose cell in a column contains what you type. Nothing is written to the file; it is a way of looking at the sheet, hiding a row never deletes anything, and clearing it puts everything back.

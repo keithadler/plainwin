@@ -2,7 +2,7 @@
 
 **Office without the bloat.** Opens Word, Excel and PowerPoint files, does the fifth of the job that fills most of the day, and never damages the rest.
 
-**[Download Plain-for-Windows-1.2.0-x64.exe](https://github.com/keithadler/plainwin/releases/latest/download/Plain-for-Windows-1.2.0-x64.exe)** for ordinary Intel and AMD PCs, or **[Plain-for-Windows-1.2.0-arm64.exe](https://github.com/keithadler/plainwin/releases/latest/download/Plain-for-Windows-1.2.0-arm64.exe)** for Windows on ARM.
+**[Download Plain-for-Windows-1.3.0-x64.exe](https://github.com/keithadler/plainwin/releases/latest/download/Plain-for-Windows-1.3.0-x64.exe)** for ordinary Intel and AMD PCs, or **[Plain-for-Windows-1.3.0-arm64.exe](https://github.com/keithadler/plainwin/releases/latest/download/Plain-for-Windows-1.3.0-arm64.exe)** for Windows on ARM.
 
 Windows 10 or 11. One exe, no installer, no runtime to install, no administrator. Put it anywhere and double-click. Windows will warn you about an unknown publisher: choose **More info**, then **Run anyway**. It is not signed, because a signing certificate costs money this does not make.
 
@@ -44,7 +44,7 @@ The other four fifths are not dropped. They are kept. Plain is not a smaller Off
 
 ## What it does
 
-**Spreadsheets.** Cells, text and formulas across every sheet. Sort rows by any column, with Plain refusing whenever a formula would be made to mean something else. Filter to show only the rows you want. Drag column edges to resize, double-click one to fit it to its contents, and keep the header rows on screen while the rest scrolls. What the selection adds up to is in the status bar. Joined cells are drawn as one. Insert and delete rows and columns, and every formula in the workbook is rewritten so it still means what it meant. Totals are worked out as you go, covering the common functions including lookups, conditional sums and dates, and refusing anything it does not fully understand rather than guessing. Number formats, bold, fill down, copy and paste as tab separated text.
+**Spreadsheets.** Cells, text and formulas across every sheet. Sort rows by any column, with Plain refusing whenever a formula would be made to mean something else. Filter to show only the rows you want. Drag column edges to resize, double-click one to fit it to its contents, and keep the header rows on screen while the rest scrolls. What the selection adds up to is in the status bar. Joined cells are drawn as one. Sheets can be added, renamed, moved and taken out, with every formula that named a renamed sheet rewritten to follow it. Rows have a height, cells have colour and alignment, and columns can be held on screen as well as rows. Insert and delete rows and columns, and every formula in the workbook is rewritten so it still means what it meant. Totals are worked out as you go, covering the common functions including lookups, conditional sums and dates, and refusing anything it does not fully understand rather than guessing. Number formats, bold, fill down, copy and paste as tab separated text.
 
 **Documents.** The body text, with headings and tables shown as headings and tables. Bold, italic, heading levels, bullets and numbered lists. Word count.
 

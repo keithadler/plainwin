@@ -66,7 +66,10 @@ public static class UpdateCheck
         catch (Exception ex) { return new Updates.Unknown(ex.Message); }
     }
 
-    /// <summary>Open the release page in the browser, which is as far as Plain will go on your behalf.</summary>
+    /// <summary>
+    /// Open an address in the browser, which is as far as Plain will go on your behalf. Used for the release page
+    /// and for a link in a document that has been checked as an ordinary web or mail address.
+    /// </summary>
     public static void OpenReleasePage(string page)
     {
         try

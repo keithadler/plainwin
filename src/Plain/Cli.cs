@@ -13,10 +13,10 @@ namespace Plain;
 /// </summary>
 public static class Cli
 {
-    public const string Version = "1.2.0";
+    public const string Version = "1.3.0";
 
     private static readonly string[] Verbs =
-        { "info", "parts", "text", "cells", "get", "set", "new", "replace", "row", "column", "width", "freeze", "sort", "explorer", "slide", "tablerow", "hidden", "find", "sheet", "height", "align", "colour", "props", "pdf", "csv", "import", "count", "images", "apply", "changes", "comments", "roundtrip", "selftest", "version", "help", "--help", "-h", "--version" };
+        { "info", "parts", "text", "cells", "get", "set", "new", "replace", "row", "column", "width", "freeze", "sort", "explorer", "slide", "tablerow", "hidden", "find", "sheet", "height", "align", "colour", "band", "links", "compare", "props", "pdf", "csv", "import", "count", "images", "apply", "changes", "comments", "roundtrip", "selftest", "version", "help", "--help", "-h", "--version" };
 
     public static bool IsVerb(string arg) => Verbs.Contains(arg, StringComparer.OrdinalIgnoreCase);
 
@@ -66,6 +66,9 @@ public static class Cli
           plain height <file> <row> <points|auto> [sheet]           how tall a row is
           plain align <file> <range> left|centre|right|general [--wrap|--nowrap] [--sheet <name>]
           plain colour <file> <range> [--fill RRGGBB] [--ink RRGGBB] [--sheet <name>]
+          plain band <file> [--set <n> "<text>"]   the lines along the top and bottom of every page
+          plain links <file>               every link, and where it actually goes
+          plain compare <before> <after>   what changed between two versions of a file
 
         For pdf: --paper A4|Letter|Legal|A3|A5  --landscape  --margin <mm>
                  --header "<text>"  --footer "<text>"   with {page} and {pages}
@@ -494,6 +497,62 @@ public static class Cli
                     File.WriteAllBytes(file.Path, file.Package.ToBytes());
                     o.WriteLine($"{cells.Count} cell{(cells.Count == 1 ? "" : "s")} on {sheet.Name} changed");
                     return 0;
+                }
+
+                case "band":
+                {
+                    if (rest.Count < 1) { err.WriteLine("band <file> [--set <n> \"<text>\"]"); return 64; }
+                    var file = PlainFile.Open(rest[0]);
+                    var bands = HeaderFooter.All(file);
+                    if (bands.Count == 0) { o.WriteLine("This document has no headers or footers."); return 1; }
+
+                    for (int i = 0; i < bands.Count; i++)
+                        o.WriteLine($"{i + 1}  {(bands[i].IsHeader ? "header" : "footer")}, {bands[i].Which}: "
+                                  + bands[i].Text.Replace(Environment.NewLine, " / "));
+
+                    var which = Value(args, "--set");
+                    if (which is null) return 0;
+                    if (!int.TryParse(which, out var index) || index < 1 || index > bands.Count)
+                    { err.WriteLine($"there is no band {which}."); return 64; }
+                    if (rest.Count < 2) { err.WriteLine("say what it should read: band <file> --set 1 \"the words\""); return 64; }
+
+                    HeaderFooter.Write(file.Package, bands[index - 1].Part, rest[1]);
+                    file.Flush();
+                    File.WriteAllBytes(file.Path, file.Package.ToBytes());
+                    o.WriteLine();
+                    o.WriteLine($"band {index} now reads: {rest[1]}");
+                    return 0;
+                }
+
+                case "links":
+                {
+                    if (rest.Count < 1) { err.WriteLine("links <file>"); return 64; }
+                    var links = Links.All(PlainFile.Open(rest[0]));
+                    if (links.Count == 0) { o.WriteLine("No links."); return 1; }
+                    foreach (var link in links)
+                    {
+                        o.WriteLine($"{link.Where}: {link.Text}");
+                        o.WriteLine($"    -> {(link.Target.Length == 0 ? "nowhere" : link.Target)}"
+                                  + (link.External && !Links.SafeToOpen(link.Target) ? "   (Plain would not open this)" : ""));
+                    }
+                    return 0;
+                }
+
+                case "compare":
+                {
+                    if (rest.Count < 2) { err.WriteLine("compare <before> <after>"); return 64; }
+                    var report = Compare.Between(PlainFile.Open(rest[0]), PlainFile.Open(rest[1]));
+
+                    foreach (var part in report.Parts) o.WriteLine($"{part.How,-8} {part.Name}");
+                    if (report.Parts.Count > 0) o.WriteLine();
+                    foreach (var change in report.Text)
+                        o.WriteLine($"{(change.Added ? "+" : "-")} {change.Where}: {change.Text}");
+
+                    if (report.Note is not null) { o.WriteLine(); o.WriteLine(report.Note); }
+                    o.WriteLine();
+                    o.WriteLine($"{report.Parts.Count} part{(report.Parts.Count == 1 ? "" : "s")} differ, "
+                              + $"{report.Same} the same, {report.Text.Count} line{(report.Text.Count == 1 ? "" : "s")} of text.");
+                    return report.Parts.Count == 0 && report.Text.Count == 0 ? 0 : 1;
                 }
 
                 case "explorer":

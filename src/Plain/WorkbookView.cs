@@ -27,6 +27,9 @@ public sealed class WorkbookView : Grid, IFindable
     public event Action<int, int, int, int, int, bool>? SortRequested;
     public event Action<int, int>? FilterRequested;
 
+    /// <summary>Asked to do something to a sheet rather than in one; the window owns the questions and the undo.</summary>
+    public event Action<string, int>? SheetChangeRequested;
+
     public bool Filtering => _current.Filtering;
     public string FilterSaid => _current.FilterSaid;
     public void Filter(int column, string text, int firstRow) => _current.Filter(column, text, firstRow);
@@ -122,6 +125,22 @@ public sealed class WorkbookView : Grid, IFindable
                 Tag = sheet,
             };
             tab.Click += (s, _) => Show((Sheet)((Button)s).Tag);
+
+            // Right-click a tab for the things you do to a sheet rather than in one.
+            var menu = new ContextMenu();
+            void Item(string text, Action<int> what)
+            {
+                var entry = new MenuItem { Header = text };
+                entry.Click += (_, _) => what(_book.Sheets.ToList().IndexOf((Sheet)tab.Tag));
+                menu.Items.Add(entry);
+            }
+            Item("Rename this sheet…", i => SheetChangeRequested?.Invoke("rename", i));
+            Item("Add a sheet after this one", i => SheetChangeRequested?.Invoke("add", i));
+            Item("Move it earlier", i => SheetChangeRequested?.Invoke("earlier", i));
+            Item("Move it later", i => SheetChangeRequested?.Invoke("later", i));
+            menu.Items.Add(new Separator());
+            Item("Take this sheet out…", i => SheetChangeRequested?.Invoke("remove", i));
+            tab.ContextMenu = menu;
             _strip.Children.Add(tab);
         }
     }

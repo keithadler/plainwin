@@ -34,9 +34,13 @@
           <Button.ContextMenu>
             <ContextMenu x:Name="MoreMenu">
               <MenuItem Header="Print…" Click="OnPrint" InputGestureText="Ctrl+P"/>
+              <MenuItem Header="See the pages first…" Click="OnPrintPreview"/>
               <MenuItem Header="Save as PDF…" Click="OnPdf"/>
               <MenuItem Header="Before you send it…" Click="OnBeforeYouSend"/>
               <MenuItem Header="Find in a folder…" Click="OnFindInFolder" InputGestureText="Ctrl+Shift+F"/>
+              <MenuItem Header="Compare with another file…" Click="OnCompare"/>
+              <MenuItem x:Name="LinksItem" Header="Links in this file…" Click="OnLinks"/>
+              <MenuItem x:Name="BandsItem" Header="Headers and footers…" Click="OnBands"/>
               <Separator x:Name="ShapeSeparator"/>
               <MenuItem x:Name="AddSlideItem" Header="Add a slide after this one" Click="OnAddSlide"/>
               <MenuItem x:Name="RemoveSlideItem" Header="Take this slide out" Click="OnRemoveSlide"/>

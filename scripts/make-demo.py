@@ -195,9 +195,21 @@ def document():
                  "everyone onto the same renewal date. The saving on repairs should stay set aside rather than be "
                  "taken out.")
     body += para("Nothing in this note is agreed until the board has seen it.")
+    # A real header and footer, so the pictures and the checks have something to read. LibreOffice turns these
+    # into Word's own header and footer parts on the way to .docx.
+    page = ('<office:automatic-styles>'
+            '<style:page-layout style:name="pm1"><style:page-layout-properties '
+            'fo:margin-top="0.8in" fo:margin-bottom="0.8in" fo:margin-left="0.8in" fo:margin-right="0.8in"/>'
+            '<style:header-style><style:header-footer-properties fo:min-height="0.3in"/></style:header-style>'
+            '<style:footer-style><style:header-footer-properties fo:min-height="0.3in"/></style:footer-style>'
+            '</style:page-layout></office:automatic-styles>'
+            '<office:master-styles><style:master-page style:name="Standard" style:page-layout-name="pm1">'
+            '<style:header><text:p>Pine Street Holdings, in confidence</text:p></style:header>'
+            '<style:footer><text:p>Woodland Ave annual review, 3 July</text:p></style:footer>'
+            '</style:master-page></office:master-styles>')
     return ('<?xml version="1.0" encoding="UTF-8"?>\n<office:document %s '
-            'office:mimetype="application/vnd.oasis.opendocument.text">\n'
-            '<office:body><office:text>\n%s</office:text></office:body></office:document>\n' % (NS, body))
+            'office:mimetype="application/vnd.oasis.opendocument.text">\n%s\n'
+            '<office:body><office:text>\n%s</office:text></office:body></office:document>\n' % (NS, page, body))
 
 
 # ---------------- presentation ----------------

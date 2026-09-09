@@ -233,6 +233,62 @@ public sealed class Document
         return true;
     }
 
+    /// <summary>
+    /// Where a paragraph sits across the page: left, centred, right or justified. "general" takes it back to
+    /// whatever its style says, which is not the same as setting it to left, and is what someone means when they
+    /// want to undo having centred something.
+    /// </summary>
+    public bool SetParagraphAlignment(int index, string where)
+    {
+        if (index < 0 || index >= _paragraphs.Count) return false;
+
+        string? value = where.ToLowerInvariant() switch
+        {
+            "left" => "left",
+            "centre" or "center" => "center",
+            "right" => "right",
+            "justify" or "justified" => "both",
+            "general" or "none" => null,
+            _ => "?",
+        };
+        if (value == "?") return false;
+
+        var paragraph = _paragraphs[index];
+        var properties = paragraph.Element(D.Word + "pPr");
+
+        if (value is null)
+        {
+            properties?.Elements(D.Word + "jc").Remove();
+            _dirty = true;
+            return true;
+        }
+
+        if (properties is null) { properties = new XElement(D.Word + "pPr"); paragraph.AddFirst(properties); }
+        properties.Elements(D.Word + "jc").Remove();
+        // jc comes after pStyle and the numbering, which is the order Word writes and expects.
+        var after = properties.Element(D.Word + "numPr") ?? properties.Element(D.Word + "pStyle");
+        var element = new XElement(D.Word + "jc", new XAttribute(D.Word + "val", value));
+        if (after is not null) after.AddAfterSelf(element); else properties.AddFirst(element);
+
+        _dirty = true;
+        return true;
+    }
+
+    /// <summary>Where this paragraph sits, as the word someone would use for it.</summary>
+    public string ParagraphAlignment(int index)
+    {
+        if (index < 0 || index >= _paragraphs.Count) return "general";
+        var value = (string?)_paragraphs[index].Element(D.Word + "pPr")?.Element(D.Word + "jc")?.Attribute(D.Word + "val");
+        return value switch
+        {
+            "center" => "centre",
+            "right" => "right",
+            "both" or "distribute" => "justify",
+            "left" or "start" => "left",
+            _ => "general",
+        };
+    }
+
     private bool HasStyle(string id)
     {
         if (!_pkg.Has("word/styles.xml")) return false;
