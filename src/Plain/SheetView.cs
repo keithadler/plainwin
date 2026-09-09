@@ -106,6 +106,7 @@ public sealed class SheetView : Grid
         _surface.MouseWheel += (_, e) => { _vertical.Value = Math.Clamp(_vertical.Value - e.Delta / 40.0, 0, _vertical.Maximum); _firstRow = (int)_vertical.Value + 1; Redraw(); };
         KeyDown += OnKey;
         SizeChanged += (_, _) => Redraw();
+        BuildMenu();
         Loaded += (_, _) => { Focus(); Select(new CellRef(1, 1)); };
     }
 
@@ -237,6 +238,92 @@ public sealed class SheetView : Grid
     /// Copy the selection as tab separated text, which is what every spreadsheet reads and writes on the clipboard.
     /// A cell with a formula copies as its formula, the way Excel copies one, so pasting it back puts a formula back.
     /// </summary>
+    /// <summary>Every cell in the selection, which is one cell unless a block is picked out.</summary>
+    public IEnumerable<CellRef> SelectedCells()
+    {
+        var (left, top, right, bottom) = Range;
+        for (int r = top; r <= bottom; r++)
+            for (int c = left; c <= right; c++)
+                yield return new CellRef(c, r);
+    }
+
+    /// <summary>
+    /// Put whatever is in the top cell of the selection into the rest of it. Formulas move with it the way they do in
+    /// Excel, so a rate filled down a column reads the row it lands on rather than the row it came from.
+    /// </summary>
+    public int FillDown()
+    {
+        var (left, top, right, bottom) = Range;
+        if (bottom == top) return 0;
+
+        var changes = new List<(CellRef Cell, string Value)>();
+        for (int c = left; c <= right; c++)
+        {
+            var from = new CellRef(c, top);
+            var source = _sheet.Read(from);
+            string typed = source.Formula ?? source.Raw;
+            if (typed.Length == 0) continue;
+
+            for (int r = top + 1; r <= bottom; r++)
+            {
+                string value = source.Formula is null
+                    ? typed
+                    : Refs.Rewrite(typed, token =>
+                      {
+                          // A relative row follows the fill; a row pinned with a dollar stays where it was.
+                          if (token.Kind != Refs.Shape.Cell) return null;
+                          int shift = r - top;
+                          var range = token.Range;
+                          int min = token.Row1Fixed ? range.RowMin : range.RowMin + shift;
+                          int max = token.Row2Fixed ? range.RowMax : range.RowMax + shift;
+                          if (min == range.RowMin && max == range.RowMax) return null;
+                          if (min < 1 || max > 1048576) return "#REF!";
+                          return Refs.Write(range with { RowMin = min, RowMax = max }, token.Kind,
+                                            token.Column1Fixed, token.Row1Fixed, token.Column2Fixed, token.Row2Fixed,
+                                            token.IsRange);
+                      });
+                changes.Add((new CellRef(c, r), value));
+            }
+        }
+
+        if (changes.Count == 0) return 0;
+        ApplyMany(changes);
+        return changes.Count;
+    }
+
+    /// <summary>Read the sheet again from the file, after something changed it from outside this view.</summary>
+    public void Reload()
+    {
+        _cache.Clear();
+        var extent = _sheet.Extent;
+        _lastColumn = Math.Max(extent.Column + 6, 12);
+        _lastRow = Math.Max(extent.Row + 40, 60);
+        Redraw();
+        SelectionChanged?.Invoke(_selected, Get(_selected));
+    }
+
+    /// <summary>Put a row or column in, or take one out, where the selection is.</summary>
+    public event Action<GridEdit, int>? GridChangeRequested;
+
+    private void BuildMenu()
+    {
+        var menu = new ContextMenu();
+        void Item(string text, GridEdit edit, Func<int> where)
+        {
+            var entry = new MenuItem { Header = text };
+            entry.Click += (_, _) => GridChangeRequested?.Invoke(edit, where());
+            menu.Items.Add(entry);
+        }
+        Item("Insert row above", GridEdit.InsertRow, () => Range.Top);
+        Item("Insert row below", GridEdit.InsertRow, () => Range.Bottom + 1);
+        Item("Delete this row", GridEdit.DeleteRow, () => Range.Top);
+        menu.Items.Add(new Separator());
+        Item("Insert column left", GridEdit.InsertColumn, () => Range.Left);
+        Item("Insert column right", GridEdit.InsertColumn, () => Range.Right + 1);
+        Item("Delete this column", GridEdit.DeleteColumn, () => Range.Left);
+        ContextMenu = menu;
+    }
+
     public void Copy()
     {
         var (left, top, right, bottom) = Range;

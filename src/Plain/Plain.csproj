@@ -47,6 +47,8 @@
     <Compile Remove="DocView.cs" />
     <Compile Remove="DeckView.cs" />
     <Compile Remove="Screenshots.cs" />
+    <Compile Remove="Settings.cs" />
+    <Compile Remove="Printing.cs" />
     <Compile Remove="App.xaml.cs" />
     <Page Remove="**/*.xaml" />
     <ApplicationDefinition Remove="**/*.xaml" />

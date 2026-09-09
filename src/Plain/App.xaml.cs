@@ -21,6 +21,7 @@ public partial class App : Application
         {
             // Render pictures of the window and quit, without ever putting a window on screen.
             ApplyTheme(args.Contains("--dark"));
+            Screenshots.ShowNotes = args.Contains("--notes");
             var files = args.Skip(flag + 2).Where(a => !a.StartsWith('-')).ToList();
             Shutdown(Screenshots.Render(args[flag + 1], files, args.Contains("--dark")));
             return;

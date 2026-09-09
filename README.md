@@ -36,7 +36,21 @@ Change one cell and only the parts that hold that cell are rewritten. The status
 
 **Copy and paste** a block of cells with Shift to select and the usual Ctrl+C, X and V. Cells travel as tab separated text, so a block copied out of Plain pastes into Excel and the other way round; a formula copies as its formula. However many cells a paste fills, it is one step of undo.
 
-**Find** with Ctrl+F, across the whole file: every sheet of a workbook, every block of a document, every slide of a deck. A spreadsheet search looks at the formula behind a cell as well as what it shows, so searching for `SUM` finds the cells that total something.
+**Find and replace** with Ctrl+F and Ctrl+H, across the whole file: every sheet of a workbook, every block of a document, every slide of a deck. A spreadsheet search looks at the formula behind a cell as well as what it shows, so searching for `SUM` finds the cells that total something. Replace all is one step of undo however many places it changed.
+
+**Rows and columns** go in and come out from the right-click menu on the grid. Every formula in the workbook is rewritten so it still means what it meant: a total that read `B2:B4` reads `B2:B5` after a row goes in, and one that pointed only at a deleted row becomes `#REF!` rather than a quietly wrong number.
+
+**Totals are worked out** as you go. Plain covers arithmetic, comparisons, text joining and about thirty of the common functions, and refuses everything else rather than guessing, so a cell it does not understand shows nothing rather than something wrong. Excel is still asked to recalculate when it opens the file.
+
+**Comments and tracked changes** can be read: who wrote them, when, and what they said. Tracked changes can be settled and comments removed, which is what a document needs before it goes to somebody who should not see the argument that produced it.
+
+**Document properties** can be seen, set and stripped. Stripping clears what names a person or an organisation, and leaves the dates.
+
+**Print** puts what Plain shows on paper. It prints the view rather than claiming to reproduce Word's pagination.
+
+**Fill down** with Ctrl+D copies the top of a selection through the rest of it, moving formulas the way Excel does.
+
+**Bigger text** with Ctrl+plus, and back with Ctrl+0. **F6** moves between the parts of the window, so the keyboard never gets stuck in the grid. The last ten files you opened are offered when nothing is.
 
 **Save a copy** writes the file, with your changes, under a new name and leaves the original alone. The copy is a whole file, not a patch: everything Plain preserved is in it byte for byte.
 

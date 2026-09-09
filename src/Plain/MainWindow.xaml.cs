@@ -14,8 +14,10 @@ namespace Plain;
 public partial class MainWindow : Window
 {
     private readonly List<OpenFile> _open = new();
+    private readonly Settings _settings = Settings.Load();
     private OpenFile? _active;
     private bool _railVisible = true;
+    private bool _notesVisible;
 
     /// <summary>One file the app is holding: the model, the view, what changed, and how to put it back.</summary>
     private sealed class OpenFile
@@ -32,6 +34,8 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        _railVisible = _settings.ShowPreserved;
+        ApplyTextScale();
         Loaded += (_, _) =>
         {
             if (!Screenshots.Active)
@@ -43,9 +47,10 @@ public partial class MainWindow : Window
     }
 
     /// <summary>Open a file straight away, for the screenshot renderer which has no user to click Open.</summary>
-    internal void OpenForScreenshot(string path)
+    internal void OpenForScreenshot(string path, bool showNotes = false)
     {
         OpenPath(path);
+        _notesVisible = showNotes;
         Refresh();
     }
 
@@ -124,6 +129,7 @@ public partial class MainWindow : Window
 
         _open.Add(entry);
         _active = entry;
+        _settings.Remember(path);
     }
 
     private OpenFile Build(PlainFile file, string path)
@@ -145,6 +151,7 @@ public partial class MainWindow : Window
                     if (_active == entry) StatusStat.Text = Describe(entry);
                 };
                 bookView.Edited += undo => { entry.Undo.Push(undo); entry.Dirty = true; Refresh(); };
+                bookView.GridChangeRequested += (edit, at) => ChangeGrid(entry, bookView, edit, at);
                 break;
             }
             case FileKind.Document:
@@ -179,10 +186,87 @@ public partial class MainWindow : Window
         return entry;
     }
 
+    /// <summary>One line of the recent list.</summary>
+    private sealed record RecentEntry(string Name, string Path);
+
+    private void OnOpenRecent(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: string path }) { OpenPath(path); Refresh(); }
+    }
+
+    // ---------- how big the text is ----------
+
+    /// <summary>
+    /// Scale everything in the window. Windows' own display scaling handles the whole screen; this is for the person
+    /// who wants this app's text larger than the rest, which was the first thing asked for by anyone reading it at a
+    /// distance.
+    /// </summary>
+    private void ApplyTextScale()
+    {
+        double scale = Math.Clamp(_settings.TextScale, 0.8, 3.0);
+        LayoutTransform = scale == 1.0 ? System.Windows.Media.Transform.Identity
+                                       : new System.Windows.Media.ScaleTransform(scale, scale);
+    }
+
+    private void Bigger() { _settings.Bigger(); _settings.Save(); ApplyTextScale(); Say($"Text at {_settings.TextScale * 100:0}%."); }
+    private void Smaller() { _settings.Smaller(); _settings.Save(); ApplyTextScale(); Say($"Text at {_settings.TextScale * 100:0}%."); }
+    private void NormalSize() { _settings.TextScale = 1.0; _settings.Save(); ApplyTextScale(); Say("Text back to normal size."); }
+
+    // ---------- moving about without a mouse ----------
+
+    /// <summary>
+    /// Move focus from one part of the window to the next. Without this the grid is a trap: Tab inside it moves the
+    /// selected cell, so there is no way out with the keyboard alone.
+    /// </summary>
+    private void CycleFocus(bool backwards)
+    {
+        var stops = new List<System.Windows.IInputElement?> { NewBtn, Stage.Content as System.Windows.IInputElement, RailList, Tabs };
+        if (_notesVisible) stops.Insert(3, NotesList);
+        var live = stops.Where(x => x is UIElement { IsVisible: true }).Cast<System.Windows.IInputElement>().ToList();
+        if (live.Count == 0) return;
+
+        int at = live.FindIndex(x => x is DependencyObject d && IsAncestorOfFocus(d));
+        int next = at < 0 ? 0 : (at + (backwards ? -1 : 1) + live.Count) % live.Count;
+        var target = live[next];
+        if (target is UIElement element)
+        {
+            element.Focus();
+            if (!element.IsKeyboardFocusWithin) element.MoveFocus(new TraversalRequest(FocusNavigationDirection.First));
+        }
+        Say(FocusName(live[next]));
+    }
+
+    private static bool IsAncestorOfFocus(DependencyObject candidate)
+    {
+        var focused = Keyboard.FocusedElement as DependencyObject;
+        while (focused is not null)
+        {
+            if (ReferenceEquals(focused, candidate)) return true;
+            focused = System.Windows.Media.VisualTreeHelper.GetParent(focused)
+                      ?? LogicalTreeHelper.GetParent(focused);
+        }
+        return false;
+    }
+
+    private string FocusName(object element) => element switch
+    {
+        _ when ReferenceEquals(element, NewBtn) => "Commands",
+        _ when ReferenceEquals(element, RailList) => "Preserved panel",
+        _ when ReferenceEquals(element, NotesList) => "Comments panel",
+        _ when ReferenceEquals(element, Tabs) => "Open files",
+        _ => "Document",
+    };
+
     // ---------- commands ----------
 
     private void OnWindowKey(object sender, KeyEventArgs e)
     {
+        if (e.Key == Key.F6)
+        {
+            CycleFocus(backwards: e.KeyboardDevice.Modifiers == ModifierKeys.Shift);
+            e.Handled = true;
+            return;
+        }
         if (e.KeyboardDevice.Modifiers != ModifierKeys.Control) return;
         switch (e.Key)
         {
@@ -191,7 +275,13 @@ public partial class MainWindow : Window
             case Key.Z: OnUndo(sender, e); e.Handled = true; break;
             case Key.W: CloseActive(); e.Handled = true; break;
             case Key.F: ShowFind(); e.Handled = true; break;
+            case Key.H: ShowFind(replacing: true); e.Handled = true; break;
             case Key.N: OnNew(sender, e); e.Handled = true; break;
+            case Key.P: OnPrint(sender, e); e.Handled = true; break;
+            case Key.D: FillDown(); e.Handled = true; break;
+            case Key.OemPlus or Key.Add: Bigger(); e.Handled = true; break;
+            case Key.OemMinus or Key.Subtract: Smaller(); e.Handled = true; break;
+            case Key.D0 or Key.NumPad0: NormalSize(); e.Handled = true; break;
         }
     }
 
@@ -282,7 +372,24 @@ public partial class MainWindow : Window
     private void OnToggleRail(object sender, RoutedEventArgs e)
     {
         _railVisible = !_railVisible;
+        _settings.ShowPreserved = _railVisible;
+        _settings.Save();
         Refresh();
+    }
+
+    private void OnToggleNotes(object sender, RoutedEventArgs e)
+    {
+        _notesVisible = !_notesVisible;
+        Refresh();
+    }
+
+    /// <summary>Copy the top cell of the selection down through the rest of it, the way a column of rates gets filled.</summary>
+    private void FillDown()
+    {
+        if (_active?.View is not WorkbookView view) return;
+        int filled = view.CurrentGrid.FillDown();
+        Say(filled == 0 ? "Select a cell and the ones below it, then Ctrl+D fills them from the top one."
+                        : $"Filled {filled} cell{(filled == 1 ? "" : "s")} from the one above.");
     }
 
     // ---------- find ----------
@@ -290,13 +397,67 @@ public partial class MainWindow : Window
     private int _findAt = -1;
     private int _findCount;
 
-    private void ShowFind()
+    private void ShowFind(bool replacing = false)
     {
         if (_active is null) return;
         FindBar.Visibility = Visibility.Visible;
-        FindBox.Focus();
-        FindBox.SelectAll();
+        if (replacing) { ReplaceBox.Focus(); ReplaceBox.SelectAll(); }
+        else { FindBox.Focus(); FindBox.SelectAll(); }
         RunFind(FindBox.Text);
+    }
+
+    private void OnFindOptionChanged(object sender, RoutedEventArgs e) => RunFind(FindBox.Text);
+
+    /// <summary>
+    /// Change every occurrence at once. This is the single thing the panels asked for most, and it is one step of
+    /// undo however many it changed, because a replace-all you cannot take back is a frightening thing to click.
+    /// </summary>
+    private void OnReplaceAll(object sender, RoutedEventArgs e)
+    {
+        if (_active is null || FindBox.Text.Length == 0) return;
+
+        var options = new Replace.Options(MatchCase: MatchCase.IsChecked == true);
+        var before = Snapshot(_active);
+        var result = Replace.InFile(_active.File, FindBox.Text, ReplaceBox.Text, options);
+
+        if (!result.Any) { FindCount.Text = "not found"; Say($"\"{FindBox.Text}\" is not in this file."); return; }
+
+        _active.Dirty = true;
+        _active.Undo.Push(() => Restore(_active, before));
+        Rebuild(_active);
+        Say($"Changed {result.Occurrences} occurrence{(result.Occurrences == 1 ? "" : "s")} in {result.Cells} place{(result.Cells == 1 ? "" : "s")}.");
+        RunFind(FindBox.Text);
+    }
+
+    /// <summary>
+    /// Everything a whole-file change touches, kept so it can be put back. Replace-all can reach hundreds of cells
+    /// across several sheets, so the only honest undo is the state that was there before.
+    /// </summary>
+    private static Dictionary<string, byte[]> Snapshot(OpenFile file)
+    {
+        file.File.Flush();
+        var kept = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+        foreach (var part in file.File.ShownParts())
+            if (file.File.Package.Has(part)) kept[part] = file.File.Package.Read(part);
+        return kept;
+    }
+
+    private static void Restore(OpenFile file, Dictionary<string, byte[]> kept)
+    {
+        foreach (var (part, bytes) in kept) file.File.Package.Write(part, bytes);
+    }
+
+    /// <summary>Build the view again from the file, after a change too broad to patch in place.</summary>
+    private void Rebuild(OpenFile file)
+    {
+        var reopened = PlainFile.Read(file.File.Package.ToBytes());
+        var replacement = Build(reopened, file.FilePath);
+        replacement.Dirty = true;
+        foreach (var step in file.Undo.Reverse()) replacement.Undo.Push(step);
+        int at = _open.IndexOf(file);
+        if (at >= 0) _open[at] = replacement;
+        if (_active == file) _active = replacement;
+        Refresh();
     }
 
     private void OnFindClose(object sender, RoutedEventArgs e)
@@ -359,6 +520,107 @@ public partial class MainWindow : Window
         if (_active?.View is WorkbookView view && CellEditor.IsKeyboardFocusWithin == false) view.Apply(CellEditor.Text);
     }
 
+    /// <summary>
+    /// Put a row or column in, or take one out. Every formula in the workbook is rewritten to still mean what it
+    /// meant, so this is too broad to patch in place: the view is built again from the file afterwards.
+    /// </summary>
+    private void ChangeGrid(OpenFile file, WorkbookView view, GridEdit edit, int at)
+    {
+        try
+        {
+            var before = Snapshot(file);
+            int adjusted = file.File.Workbook!.Apply(view.CurrentSheet, edit, at);
+            file.Dirty = true;
+            file.Undo.Push(() => Restore(file, before));
+            Rebuild(file);
+            string what = edit switch
+            {
+                GridEdit.InsertRow => $"Put a row in at {at}",
+                GridEdit.DeleteRow => $"Took row {at} out",
+                GridEdit.InsertColumn => $"Put a column in at {CellRef.ColumnName(at)}",
+                _ => $"Took column {CellRef.ColumnName(at)} out",
+            };
+            Say($"{what}. {adjusted} formula{(adjusted == 1 ? "" : "s")} adjusted to match.");
+        }
+        catch (Exception ex) { Say("Could not change the sheet: " + Explain(ex)); }
+    }
+
+    // ---------- how cells show their numbers ----------
+
+    private bool _settingFormat;
+
+    private void OnFormatPicked(object sender, SelectionChangedEventArgs e)
+    {
+        if (_settingFormat || _active?.View is not WorkbookView view) return;
+        if (FormatPicker.SelectedItem is not ComboBoxItem { Tag: string code }) return;
+
+        var cells = view.CurrentGrid.SelectedCells().ToList();
+        if (cells.Count == 0) return;
+        try
+        {
+            var before = Snapshot(_active);
+            view.CurrentGrid.Sheet.SetFormat(cells, code);
+            _active.Dirty = true;
+            _active.Undo.Push(() => Restore(_active, before));
+            view.CurrentGrid.Reload();
+            Say($"{cells.Count} cell{(cells.Count == 1 ? "" : "s")} now shown as {((ComboBoxItem)FormatPicker.SelectedItem).Content}.");
+        }
+        catch (Exception ex) { Say("Could not change the format: " + Explain(ex)); }
+        Refresh();
+    }
+
+    // ---------- what other people wrote ----------
+
+    private sealed record NoteLine(string Who, string When, string What);
+
+    private void OnAcceptChanges(object sender, RoutedEventArgs e)
+    {
+        if (_active is null) return;
+        var before = Snapshot(_active);
+        int settled = Annotations.AcceptRevisions(_active.File);
+        if (settled == 0) { Say("There are no tracked changes to settle."); return; }
+        _active.Dirty = true;
+        _active.Undo.Push(() => Restore(_active, before));
+        Rebuild(_active);
+        Say($"Settled {settled} tracked change{(settled == 1 ? "" : "s")}: what was added stayed, what was struck out went.");
+    }
+
+    private void OnRemoveComments(object sender, RoutedEventArgs e)
+    {
+        if (_active is null) return;
+        var before = Snapshot(_active);
+        int removed = Annotations.RemoveComments(_active.File);
+        if (removed == 0) { Say("There are no comments to remove."); return; }
+        _active.Dirty = true;
+        _active.Undo.Push(() => Restore(_active, before));
+        Rebuild(_active);
+        Say($"Removed {removed} comment{(removed == 1 ? "" : "s")}.");
+    }
+
+    // ---------- printing ----------
+
+    /// <summary>
+    /// Print what is on screen. Plain does not lay pages out the way Word does, so this prints the view rather than
+    /// claiming to reproduce someone else's pagination, and the dialog says as much.
+    /// </summary>
+    private void OnPrint(object sender, RoutedEventArgs e)
+    {
+        if (_active?.View is not FrameworkElement view) return;
+
+        var dialog = new System.Windows.Controls.PrintDialog();
+        if (dialog.ShowDialog() != true) return;
+
+        try
+        {
+            double width = dialog.PrintableAreaWidth, height = dialog.PrintableAreaHeight;
+            var document = Printing.Build(_active.File, _active.Name, width, height);
+            dialog.PrintDocument(((System.Windows.Documents.IDocumentPaginatorSource)document).DocumentPaginator,
+                                 _active.Name);
+            Say($"Sent {_active.Name} to {dialog.PrintQueue?.Name ?? "the printer"}.");
+        }
+        catch (Exception ex) { Say("Could not print: " + Explain(ex)); }
+    }
+
     // ---------- painting the chrome ----------
 
     private string _message = "";
@@ -386,16 +648,29 @@ public partial class MainWindow : Window
             _ => "",
         };
 
+        PrintBtn.IsEnabled = _active is not null;
+        FormatPicker.Visibility = _active?.File.Kind == FileKind.Spreadsheet ? Visibility.Visible : Visibility.Collapsed;
+
         if (_active is null)
         {
             RailList.ItemsSource = null;
             RailFoot.Text = "";
             KeepBtn.Content = "Preserved";
+            NotesBtn.Visibility = Visibility.Collapsed;
+            Notes.Visibility = Visibility.Collapsed;
             StatusPromise.Text = _message.Length > 0 ? _message : "Nothing open.";
             StatusStat.Text = "";
             Title = "Plain";
+
+            var recent = _settings.RecentThatExist()
+                .Select(p => new RecentEntry(Path.GetFileName(p), p)).ToList();
+            RecentList.ItemsSource = recent;
+            RecentHeading.Visibility = recent.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
             return;
         }
+
+        FillFormatPicker();
+        FillNotes();
 
         var parts = _active.File.Parts();
         var kept = parts.Where(p => p.Role == PartRole.Preserved).ToList();
@@ -416,6 +691,8 @@ public partial class MainWindow : Window
             _ => "Shapes Plain cannot draw are held in place. Editing a title never moves them.",
         };
 
+        Notes.Visibility = _notesVisible ? Visibility.Visible : Visibility.Collapsed;
+
         if (rows.Count == 0 && bookkeeping > 0)
             RailFoot.Text = $"Everything in this file is something Plain shows, apart from {bookkeeping} parts of bookkeeping. Nothing is being held back.";
 
@@ -435,6 +712,55 @@ public partial class MainWindow : Window
             StatusStat.Text += "  ·  one block's mixed formatting was flattened";
 
         Title = (_active.Dirty ? "• " : "") + _active.Name + " - Plain";
+    }
+
+    /// <summary>Offer the formats by name, showing the one the selected cell already uses.</summary>
+    private void FillFormatPicker()
+    {
+        if (_active?.View is not WorkbookView view) return;
+        _settingFormat = true;
+        try
+        {
+            if (FormatPicker.Items.Count == 0)
+                foreach (var (name, code) in Styles.Common)
+                    FormatPicker.Items.Add(new ComboBoxItem { Content = name, Tag = code });
+
+            string current = view.CurrentGrid.Sheet.FormatOf(view.CurrentGrid.Selected);
+            var match = FormatPicker.Items.Cast<ComboBoxItem>().FirstOrDefault(i => (string)i.Tag == current);
+            FormatPicker.SelectedItem = match;
+            if (match is null) FormatPicker.Text = current.Length == 0 ? "General" : current;
+        }
+        finally { _settingFormat = false; }
+    }
+
+    /// <summary>What other people wrote, and whether there is anything to show at all.</summary>
+    private void FillNotes()
+    {
+        if (_active is null) return;
+        var comments = Annotations.Comments(_active.File);
+        var revisions = Annotations.Revisions(_active.File);
+        int total = comments.Count + revisions.Count;
+
+        NotesBtn.Visibility = total > 0 ? Visibility.Visible : Visibility.Collapsed;
+        NotesBtn.Content = $"Comments  {total}";
+        if (total == 0) { _notesVisible = false; return; }
+
+        var lines = new List<NoteLine>();
+        foreach (var note in comments)
+            lines.Add(new NoteLine(note.Author.Length > 0 ? note.Author : "Someone",
+                                   note.When,
+                                   note.Text + (note.Where.Length > 0 && note.Where != "comment" ? $"  ({note.Where})" : "")));
+        foreach (var revision in revisions)
+            lines.Add(new NoteLine(revision.Author.Length > 0 ? revision.Author : "Someone",
+                                   revision.When,
+                                   (revision.Inserted ? "Added: " : "Struck out: ") + revision.Text));
+        NotesList.ItemsSource = lines;
+
+        NotesLede.Text = $"{comments.Count} comment{(comments.Count == 1 ? "" : "s")} and " +
+                         $"{revisions.Count} tracked change{(revisions.Count == 1 ? "" : "s")} are in this file. " +
+                         "They stay in it whether or not you look at them.";
+        AcceptBtn.IsEnabled = revisions.Count > 0;
+        ClearNotesBtn.IsEnabled = comments.Count > 0;
     }
 
     private static string Describe(OpenFile file)

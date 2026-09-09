@@ -23,6 +23,7 @@ public sealed class WorkbookView : Grid, IFindable
 
     public event Action<CellRef, Cell>? SelectionChanged;
     public event Action<Action>? Edited;
+    public event Action<GridEdit, int>? GridChangeRequested;
 
     public Sheet CurrentSheet => _current.Sheet;
     public SheetView CurrentGrid => _current;
@@ -68,6 +69,7 @@ public sealed class WorkbookView : Grid, IFindable
             grid = new SheetView(sheet);
             grid.SelectionChanged += (reference, cell) => SelectionChanged?.Invoke(reference, cell);
             grid.Edited += undo => Edited?.Invoke(undo);
+            grid.GridChangeRequested += (edit, at) => GridChangeRequested?.Invoke(edit, at);
             _grids[sheet] = grid;
         }
         _current = grid;

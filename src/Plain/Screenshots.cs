@@ -16,6 +16,9 @@ public static class Screenshots
     /// <summary>True while rendering, so a window does not also open whatever is on the command line.</summary>
     public static bool Active { get; private set; }
 
+    /// <summary>Open the comments panel in the picture, so the rendered shots can show it.</summary>
+    public static bool ShowNotes { get; set; }
+
     public static int Render(string outDir, IReadOnlyList<string> files, bool dark)
     {
         Active = true;
@@ -40,7 +43,7 @@ public static class Screenshots
                 Top = -10_000,
                 ShowActivated = false,
             };
-            window.OpenForScreenshot(file);
+            window.OpenForScreenshot(file, ShowNotes);
             window.Show();
             Pump(window.Dispatcher);
 

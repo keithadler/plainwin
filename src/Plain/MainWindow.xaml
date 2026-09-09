@@ -33,7 +33,13 @@
         <Button x:Name="SaveBtn" Style="{StaticResource Flat}" Content="Save" Click="OnSave" DockPanel.Dock="Left" Margin="2,0,0,0"/>
         <Button x:Name="CopyBtn" Style="{StaticResource Flat}" Content="Save a copy" Click="OnSaveCopy" DockPanel.Dock="Left" Margin="2,0,0,0"/>
         <Button x:Name="UndoBtn" Style="{StaticResource Flat}" Content="Undo" Click="OnUndo" DockPanel.Dock="Left" Margin="2,0,0,0"/>
+        <Button x:Name="PrintBtn" Style="{StaticResource Flat}" Content="Print" Click="OnPrint" DockPanel.Dock="Left" Margin="2,0,0,0"/>
         <Border x:Name="Sep1" Width="1" Background="{DynamicResource Line}" Height="18" Margin="8,0" DockPanel.Dock="Left"/>
+        <ComboBox x:Name="FormatPicker" DockPanel.Dock="Left" Width="132" Height="26" Margin="0,0,6,0"
+                  VerticalContentAlignment="Center" FontSize="12.5" Visibility="Collapsed"
+                  SelectionChanged="OnFormatPicked" ToolTip="How the selected cells show their number"/>
+        <Button x:Name="NotesBtn" Style="{StaticResource Flat}" Content="Comments" Click="OnToggleNotes"
+                DockPanel.Dock="Left" Visibility="Collapsed"/>
         <TextBlock x:Name="ContextHint" DockPanel.Dock="Left" VerticalAlignment="Center"
                    Foreground="{DynamicResource Ink3}" FontSize="12"/>
         <Button x:Name="KeepBtn" Style="{StaticResource Flat}" Click="OnToggleRail" DockPanel.Dock="Right"
@@ -66,15 +72,70 @@
       <Grid.ColumnDefinitions>
         <ColumnDefinition Width="*"/>
         <ColumnDefinition Width="Auto"/>
+        <ColumnDefinition Width="Auto"/>
       </Grid.ColumnDefinitions>
 
       <ContentControl x:Name="Stage" Grid.Column="0"/>
 
-      <TextBlock x:Name="Welcome" Grid.Column="0" HorizontalAlignment="Center" VerticalAlignment="Center"
-                 TextAlignment="Center" Foreground="{DynamicResource Ink3}" FontSize="14" LineHeight="24"
-                 Text="Open a Word, Excel or PowerPoint file, or drop one here.&#x0a;Plain edits the basics and keeps everything else exactly as it found it."/>
+      <StackPanel x:Name="Welcome" Grid.Column="0" HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="460">
+        <TextBlock TextAlignment="Center" Foreground="{DynamicResource Ink3}" FontSize="14" LineHeight="24"
+                   TextWrapping="Wrap"
+                   Text="Open a Word, Excel or PowerPoint file, or drop one here.&#x0a;Plain edits the basics and keeps everything else exactly as it found it."/>
+        <TextBlock x:Name="RecentHeading" Text="RECENT" FontSize="11" FontWeight="Bold" Margin="0,28,0,6"
+                   Foreground="{DynamicResource Ink3}" Visibility="Collapsed"/>
+        <ItemsControl x:Name="RecentList">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate>
+              <Button Style="{StaticResource Flat}" HorizontalContentAlignment="Left" Height="26"
+                      Click="OnOpenRecent" Tag="{Binding Path}" ToolTip="{Binding Path}">
+                <TextBlock Text="{Binding Name}" FontSize="12.5" Foreground="{DynamicResource Accent}"/>
+              </Button>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </StackPanel>
 
-      <Border x:Name="Rail" Grid.Column="1" Width="278" Background="{DynamicResource Surface2}"
+      <Border x:Name="Notes" Grid.Column="1" Width="300" Background="{DynamicResource Surface2}"
+              BorderBrush="{DynamicResource Line}" BorderThickness="1,0,0,0" Visibility="Collapsed">
+        <DockPanel>
+          <StackPanel DockPanel.Dock="Top" Margin="14,12,14,10">
+            <TextBlock Text="COMMENTS AND TRACKED CHANGES" FontWeight="Bold" FontSize="11" TextWrapping="Wrap"
+                       Foreground="{DynamicResource Accent}"/>
+            <TextBlock x:Name="NotesLede" TextWrapping="Wrap" FontSize="11.5" Margin="0,5,0,0"
+                       Foreground="{DynamicResource Ink2}"/>
+          </StackPanel>
+          <Border DockPanel.Dock="Top" Height="1" Background="{DynamicResource Line}"/>
+          <StackPanel DockPanel.Dock="Bottom" Margin="12,10">
+            <Button x:Name="AcceptBtn" Style="{StaticResource Flat}" Content="Accept all tracked changes"
+                    HorizontalContentAlignment="Left" Click="OnAcceptChanges"/>
+            <Button x:Name="ClearNotesBtn" Style="{StaticResource Flat}" Content="Delete all comments"
+                    HorizontalContentAlignment="Left" Click="OnRemoveComments" Margin="0,2,0,0"/>
+          </StackPanel>
+          <Border DockPanel.Dock="Bottom" Height="1" Background="{DynamicResource Line}"/>
+          <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <ItemsControl x:Name="NotesList">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                  <Border BorderBrush="{DynamicResource Line}" BorderThickness="0,0,0,1" Padding="14,8">
+                    <StackPanel>
+                      <DockPanel>
+                        <TextBlock Text="{Binding When}" DockPanel.Dock="Right" FontSize="10.5" Margin="8,0,0,0"
+                                   Foreground="{DynamicResource Ink3}"/>
+                        <TextBlock Text="{Binding Who}" FontSize="11.5" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource Ink}" TextTrimming="CharacterEllipsis"/>
+                      </DockPanel>
+                      <TextBlock Text="{Binding What}" FontSize="12" TextWrapping="Wrap" Margin="0,3,0,0"
+                                 Foreground="{DynamicResource Ink2}"/>
+                    </StackPanel>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </ScrollViewer>
+        </DockPanel>
+      </Border>
+
+      <Border x:Name="Rail" Grid.Column="2" Width="278" Background="{DynamicResource Surface2}"
               BorderBrush="{DynamicResource Line}" BorderThickness="1,0,0,0">
         <DockPanel>
           <StackPanel DockPanel.Dock="Top" Margin="14,12,14,10">
@@ -126,6 +187,17 @@
                 DockPanel.Dock="Left" Margin="6,0,0,0"/>
         <Button x:Name="FindNext" Style="{StaticResource Flat}" Content="Next" Click="OnFindNext"
                 DockPanel.Dock="Left" Margin="2,0,0,0"/>
+        <TextBlock Text="Replace with" DockPanel.Dock="Left" VerticalAlignment="Center" Margin="16,0,10,0"
+                   Foreground="{DynamicResource Ink2}" FontSize="12"/>
+        <Border DockPanel.Dock="Left" BorderBrush="{DynamicResource LineStrong}" BorderThickness="1" CornerRadius="4"
+                Background="{DynamicResource Surface2}" Width="220" Padding="7,0">
+          <TextBox x:Name="ReplaceBox" BorderThickness="0" Background="Transparent" Height="24"
+                   VerticalContentAlignment="Center" Foreground="{DynamicResource Ink}" KeyDown="OnFindKey"/>
+        </Border>
+        <Button x:Name="ReplaceAllBtn" Style="{StaticResource Flat}" Content="Replace all" Click="OnReplaceAll"
+                DockPanel.Dock="Left" Margin="6,0,0,0"/>
+        <CheckBox x:Name="MatchCase" Content="Match case" DockPanel.Dock="Left" VerticalAlignment="Center"
+                  Margin="12,0,0,0" FontSize="12" Foreground="{DynamicResource Ink2}" Click="OnFindOptionChanged"/>
         <TextBlock x:Name="FindCount" DockPanel.Dock="Left" VerticalAlignment="Center" Margin="12,0,0,0"
                    Foreground="{DynamicResource Ink3}" FontSize="12"/>
         <Button Style="{StaticResource Flat}" Content="Close" Click="OnFindClose" DockPanel.Dock="Right"/>
