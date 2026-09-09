@@ -10,7 +10,7 @@ public sealed class PlainFile
 {
     public OpcPackage Package { get; }
     public FileKind Kind { get; }
-    public string Path { get; }
+    public string Path { get; private set; }
 
     private Properties? _properties;
 
@@ -38,8 +38,11 @@ public sealed class PlainFile
 
     public static PlainFile Open(string path) => new(path, OpcPackage.Open(path));
 
-    /// <summary>Open from bytes already in hand, for tests and for anything that never touches a disk.</summary>
-    public static PlainFile Read(byte[] bytes) => new("", OpcPackage.Read(bytes));
+    /// <summary>
+    /// Open from bytes already in hand. The path is what the file will be saved back to; leaving it out means the
+    /// file has no home yet, and Save must then be told where to put it.
+    /// </summary>
+    public static PlainFile Read(byte[] bytes, string path = "") => new(path, OpcPackage.Read(bytes));
 
     /// <summary>
     /// Make a new, empty file at that path and open it. The kind comes from the extension, so "notes.docx" is a
@@ -141,9 +144,12 @@ public sealed class PlainFile
 
     public void Save(string? path = null)
     {
+        var to = path ?? Path;
+        if (to.Length == 0)
+            throw new OpcPackage.PackageException("This file has no name yet; use Save a copy to say where it should go.");
         Flush();
-        Package.Save(path ?? Path);
-        if (path is null || path == Path) Remember();
+        Package.Save(to);
+        if (path is null || path == to) { Path = to; Remember(); }
     }
 
     public static FileKind KindOf(string path) => System.IO.Path.GetExtension(path).ToLowerInvariant() switch

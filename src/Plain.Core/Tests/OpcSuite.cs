@@ -136,7 +136,44 @@ public static class OpcSuite
 
         NewFiles(s);
         Summaries(s);
+        Homes(s);
         return s;
+    }
+
+    /// <summary>
+    /// A file opened from bytes has to remember where it belongs, or a save after any change large enough to reopen
+    /// it goes nowhere. That is exactly what happened to replace-all and to inserting a row.
+    /// </summary>
+    private static void Homes(Suite s)
+    {
+        var scratch = Fixtures.Copy("sheet.xlsx");
+        try
+        {
+            var bytes = File.ReadAllBytes(scratch);
+
+            var nameless = PlainFile.Read(bytes);
+            s.Equal("a file read from bytes has no home by default", "", nameless.Path);
+            s.Throws<OpcPackage.PackageException>("and saving it without one is refused", () => nameless.Save());
+            s.Check("but it can be saved somewhere named", true);
+
+            var homed = PlainFile.Read(bytes, scratch);
+            s.Equal("a file read from bytes can be told where it belongs", scratch, homed.Path);
+            homed.Workbook!.Sheets[0].Set("A1", "rebuilt");
+            homed.Save();
+            s.Equal("and saves back to there", "rebuilt",
+                    PlainFile.Open(scratch).Workbook!.Sheets[0].Read("A1").Display);
+
+            // Saving somewhere else moves where it belongs, the way Save a copy then working on the copy would.
+            var elsewhere = scratch + ".copy.xlsx";
+            try
+            {
+                var moved = PlainFile.Open(scratch);
+                moved.Save(elsewhere);
+                s.Check("saving a copy leaves the original alone", File.Exists(scratch) && File.Exists(elsewhere));
+            }
+            finally { try { File.Delete(elsewhere); } catch { } }
+        }
+        finally { try { File.Delete(scratch); } catch { } }
     }
 
     /// <summary>The panel has to read like a sentence about the file, not like a directory listing of it.</summary>

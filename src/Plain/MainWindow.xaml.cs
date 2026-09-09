@@ -368,8 +368,9 @@ public partial class MainWindow : Window
             var (total, edited, kept) = _active.File.Counts();
             _active.File.Save();
             _active.Dirty = false;
-            _active.Undo.Clear();
             Recovery.Forget(_active.FilePath);
+            // The history is kept: saving is not a wall you cannot step back over, and undoing after a save
+            // leaves the file differing from what is on disk again, which is what Dirty then says.
             Say($"Saved {_active.Name}. {edited} of {total} parts rewritten, {kept} kept byte for byte.");
         }
         catch (Exception ex) { Say("Could not save: " + Explain(ex)); }
@@ -408,7 +409,7 @@ public partial class MainWindow : Window
     {
         if (_active is null || _active.Undo.Count == 0) return;
         _active.Undo.Pop()();
-        _active.Dirty = _active.Undo.Count > 0;
+        _active.Dirty = true;    // whatever is on disk, the file in front of you has just changed again
         Refresh();
     }
 
@@ -564,8 +565,9 @@ public partial class MainWindow : Window
     {
         if (_active is null) return;
         FindBar.Visibility = Visibility.Visible;
-        if (replacing) { ReplaceBox.Focus(); ReplaceBox.SelectAll(); }
-        else { FindBox.Focus(); FindBox.SelectAll(); }
+        // Either way the caret starts in what you are looking for; there is nothing to replace until that is typed.
+        FindBox.Focus();
+        FindBox.SelectAll();
         RunFind(FindBox.Text);
     }
 
@@ -613,7 +615,13 @@ public partial class MainWindow : Window
     /// <summary>Build the view again from the file, after a change too broad to patch in place.</summary>
     private void Rebuild(OpenFile file)
     {
-        var reopened = PlainFile.Read(file.File.Package.ToBytes());
+        // Push what the models are holding into the package first. Replace-all and inserting a row change the
+        // workbook, not the package, so reading the package without this gave back the file as it was before, and
+        // the change was announced and then quietly thrown away.
+        file.File.Flush();
+
+        // The rebuilt file must know where it came from, or the next save has nowhere to go.
+        var reopened = PlainFile.Read(file.File.Package.ToBytes(), file.FilePath);
         var replacement = Build(reopened, file.FilePath);
         replacement.Dirty = true;
         foreach (var step in file.Undo.Reverse()) replacement.Undo.Push(step);
