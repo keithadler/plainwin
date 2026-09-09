@@ -150,6 +150,191 @@ public sealed class Styles
         static bool Same(XElement a, XElement b) => XNode.DeepEquals(a, b);
     }
 
+    /// <summary>
+    /// How a cell's contents sit in it: left, centre or right, and whether long text wraps onto more lines rather
+    /// than running under the next cell. Alignment lives on the cell format itself, not on the font, so this is a
+    /// smaller change than bold: find or make a format that is this one plus the alignment asked for.
+    /// </summary>
+    public int WithAlignment(int currentStyle, string? horizontal, bool? wrap)
+    {
+        var (cellXfs, all, basis) = Formats(currentStyle);
+
+        var wanted = new XElement(basis);
+        var alignment = wanted.Element(D.Sheet + "alignment");
+        if (alignment is null)
+        {
+            alignment = new XElement(D.Sheet + "alignment");
+            // alignment comes after the attributes and before protection, and Excel minds the order.
+            var protection = wanted.Element(D.Sheet + "protection");
+            if (protection is not null) protection.AddBeforeSelf(alignment); else wanted.Add(alignment);
+        }
+
+        if (horizontal is not null)
+        {
+            // "general" is what a cell has when nobody has chosen, and it is said by saying nothing.
+            if (horizontal is "general" or "") alignment.SetAttributeValue("horizontal", null);
+            else alignment.SetAttributeValue("horizontal", horizontal);
+        }
+        if (wrap is not null) alignment.SetAttributeValue("wrapText", wrap.Value ? "1" : null);
+
+        if (!alignment.HasAttributes) alignment.Remove();
+        wanted.SetAttributeValue("applyAlignment", "1");
+
+        return Adopt(cellXfs, all, wanted, currentStyle);
+    }
+
+    /// <summary>What the cell says about where its contents sit, for showing the state of a button.</summary>
+    public (string Horizontal, bool Wrap) AlignmentAt(int styleIndex)
+    {
+        var all = _doc?.Root?.Element(D.Sheet + "cellXfs")?.Elements(D.Sheet + "xf").ToList();
+        if (all is null || styleIndex < 0 || styleIndex >= all.Count) return ("general", false);
+        var alignment = all[styleIndex].Element(D.Sheet + "alignment");
+        if (alignment is null) return ("general", false);
+        return ((string?)alignment.Attribute("horizontal") ?? "general",
+                (string?)alignment.Attribute("wrapText") is "1" or "true");
+    }
+
+    /// <summary>
+    /// The colour behind a cell, and the colour of its words, as six hex digits. Null for either leaves it alone,
+    /// and an empty string takes it back to none. A fill in Excel is a pattern with a foreground colour, and the
+    /// first two fills in every workbook are reserved, which is why a new one is always added rather than reused
+    /// from the front of the list.
+    /// </summary>
+    public int WithColours(int currentStyle, string? background, string? ink)
+    {
+        var (cellXfs, all, basis) = Formats(currentStyle);
+        var wanted = new XElement(basis);
+
+        if (background is not null)
+        {
+            var fills = _doc!.Root!.Element(D.Sheet + "fills")
+                ?? throw new OpcPackage.PackageException("This workbook's style table has no fills.");
+            var allFills = fills.Elements(D.Sheet + "fill").ToList();
+
+            XElement made;
+            if (background.Length == 0)
+            {
+                made = new XElement(D.Sheet + "fill", new XElement(D.Sheet + "patternFill",
+                    new XAttribute("patternType", "none")));
+            }
+            else
+            {
+                made = new XElement(D.Sheet + "fill", new XElement(D.Sheet + "patternFill",
+                    new XAttribute("patternType", "solid"),
+                    new XElement(D.Sheet + "fgColor", new XAttribute("rgb", "FF" + Hex(background))),
+                    new XElement(D.Sheet + "bgColor", new XAttribute("indexed", "64"))));
+            }
+
+            int index = allFills.FindIndex(f => XNode.DeepEquals(f, made));
+            if (index < 0)
+            {
+                fills.Add(made);
+                fills.SetAttributeValue("count", allFills.Count + 1);
+                index = allFills.Count;
+                _dirty = true;
+            }
+            wanted.SetAttributeValue("fillId", index);
+            wanted.SetAttributeValue("applyFill", "1");
+        }
+
+        if (ink is not null)
+        {
+            var fonts = _doc!.Root!.Element(D.Sheet + "fonts")
+                ?? throw new OpcPackage.PackageException("This workbook's style table has no fonts.");
+            var allFonts = fonts.Elements(D.Sheet + "font").ToList();
+            int fontIndex = Xml.Int(basis.Attribute("fontId"), 0);
+            var font = fontIndex >= 0 && fontIndex < allFonts.Count ? allFonts[fontIndex] : allFonts.FirstOrDefault();
+            if (font is null) throw new OpcPackage.PackageException("This workbook's style table has no fonts.");
+
+            var newFont = new XElement(font);
+            newFont.Elements(D.Sheet + "color").Remove();
+            if (ink.Length > 0)
+            {
+                // A font's colour goes after b and i and before sz, name and the rest.
+                var colour = new XElement(D.Sheet + "color", new XAttribute("rgb", "FF" + Hex(ink)));
+                var after = newFont.Elements(D.Sheet + "i").LastOrDefault()
+                         ?? newFont.Elements(D.Sheet + "b").LastOrDefault();
+                if (after is not null) after.AddAfterSelf(colour); else newFont.AddFirst(colour);
+            }
+
+            int index = allFonts.FindIndex(f => XNode.DeepEquals(f, newFont));
+            if (index < 0)
+            {
+                fonts.Add(newFont);
+                fonts.SetAttributeValue("count", allFonts.Count + 1);
+                index = allFonts.Count;
+                _dirty = true;
+            }
+            wanted.SetAttributeValue("fontId", index);
+            wanted.SetAttributeValue("applyFont", "1");
+        }
+
+        return Adopt(cellXfs, all, wanted, currentStyle);
+    }
+
+    /// <summary>The colours a cell is wearing, as six hex digits, or empty where it wears none.</summary>
+    public (string Background, string Ink) ColoursAt(int styleIndex)
+    {
+        var root = _doc?.Root;
+        var all = root?.Element(D.Sheet + "cellXfs")?.Elements(D.Sheet + "xf").ToList();
+        if (root is null || all is null || styleIndex < 0 || styleIndex >= all.Count) return ("", "");
+        var xf = all[styleIndex];
+
+        string background = "";
+        var fills = root.Element(D.Sheet + "fills")?.Elements(D.Sheet + "fill").ToList();
+        int fillId = Xml.Int(xf.Attribute("fillId"), 0);
+        if (fills is not null && fillId >= 0 && fillId < fills.Count)
+        {
+            var pattern = fills[fillId].Element(D.Sheet + "patternFill");
+            if ((string?)pattern?.Attribute("patternType") == "solid")
+                background = Six((string?)pattern.Element(D.Sheet + "fgColor")?.Attribute("rgb"));
+        }
+
+        string ink = "";
+        var fonts = root.Element(D.Sheet + "fonts")?.Elements(D.Sheet + "font").ToList();
+        int fontId = Xml.Int(xf.Attribute("fontId"), 0);
+        if (fonts is not null && fontId >= 0 && fontId < fonts.Count)
+            ink = Six((string?)fonts[fontId].Element(D.Sheet + "color")?.Attribute("rgb"));
+
+        return (background, ink);
+    }
+
+    /// <summary>Six hex digits, whatever was written: with or without a leading alpha pair, with or without a hash.</summary>
+    private static string Hex(string colour)
+    {
+        var clean = new string(colour.Where(Uri.IsHexDigit).ToArray()).ToUpperInvariant();
+        if (clean.Length == 8) clean = clean[2..];
+        return clean.Length == 6 ? clean : "000000";
+    }
+
+    private static string Six(string? rgb) =>
+        rgb is null ? "" : rgb.Length == 8 ? rgb[2..].ToUpperInvariant() : rgb.ToUpperInvariant();
+
+    /// <summary>The cell formats, with the one this cell is using, or a clear word about why there are none.</summary>
+    private (XElement CellXfs, List<XElement> All, XElement Basis) Formats(int currentStyle)
+    {
+        if (_doc?.Root is null) throw new OpcPackage.PackageException("This workbook has no style table, so Plain cannot change how a cell looks.");
+        var cellXfs = _doc.Root.Element(D.Sheet + "cellXfs") ?? throw new OpcPackage.PackageException("This workbook's style table has no cell formats.");
+        var all = cellXfs.Elements(D.Sheet + "xf").ToList();
+        // Build on what the cell is already wearing, so setting a colour does not throw away its number format.
+        var basis = currentStyle >= 0 && currentStyle < all.Count ? all[currentStyle] : all.FirstOrDefault();
+        if (basis is null) throw new OpcPackage.PackageException("This workbook's style table is empty.");
+        return (cellXfs, all, basis);
+    }
+
+    /// <summary>Use a format that already says this, or add it. Two identical formats would only bloat the file.</summary>
+    private int Adopt(XElement cellXfs, List<XElement> all, XElement wanted, int from)
+    {
+        for (int i = 0; i < all.Count; i++)
+            if (XNode.DeepEquals(all[i], wanted)) return i;
+
+        cellXfs.Add(wanted);
+        cellXfs.SetAttributeValue("count", all.Count + 1);
+        if (_formats.TryGetValue(from, out var carried)) _formats[all.Count] = carried;
+        _dirty = true;
+        return all.Count;
+    }
+
     /// <summary>Is the cell's font bold, or italic?</summary>
     public bool HasWeight(int styleIndex, string mark)
     {

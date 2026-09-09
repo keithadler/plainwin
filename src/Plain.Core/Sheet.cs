@@ -33,6 +33,151 @@ public sealed class Workbook
 
     public OpcPackage Package => _pkg;
     public IReadOnlyList<Sheet> Sheets => _sheets;
+
+    // ---------- the shape of the workbook ----------
+
+    private XElement SheetList =>
+        _workbookDoc!.Root!.Element(D.Sheet + "sheets")
+        ?? throw new OpcPackage.PackageException("This workbook has no list of sheets.");
+
+    /// <summary>How many formulas anywhere in the workbook name this sheet.</summary>
+    public int FormulasNaming(string name)
+    {
+        int found = 0;
+        foreach (var sheet in _sheets)
+            foreach (var (_, formula) in sheet.Formulas())
+                foreach (var token in Refs.Scan(formula))
+                    if (string.Equals(token.Range.Sheet, name, StringComparison.OrdinalIgnoreCase)) { found++; break; }
+        return found;
+    }
+
+    /// <summary>
+    /// Rename a sheet and rewrite every formula that named it. A formula saying Detail!B2 means the sheet called
+    /// Detail; renaming without rewriting would leave it pointing at a sheet that is not there any more.
+    /// </summary>
+    public int RenameSheet(int index, string name)
+    {
+        var sheet = _sheets[index];
+        var was = sheet.Name;
+
+        var entry = SheetList.Elements(D.Sheet + "sheet").ElementAtOrDefault(index);
+        if (entry is null) return 0;
+        entry.SetAttributeValue("name", name);
+        sheet.Rename(name);
+        _workbookDirty = true;
+
+        int touched = 0;
+        foreach (var other in _sheets)
+        {
+            var changes = new List<(CellRef At, string Formula)>();
+            foreach (var (at, formula) in other.Formulas())
+            {
+                var rewritten = Refs.Rewrite(formula, token =>
+                    string.Equals(token.Range.Sheet, was, StringComparison.OrdinalIgnoreCase)
+                        ? Refs.Write(token.Range with { Sheet = name }, token.Kind,
+                                     token.Column1Fixed, token.Row1Fixed, token.Column2Fixed, token.Row2Fixed,
+                                     token.IsRange)
+                        : null);
+                if (rewritten != formula) changes.Add((at, rewritten));
+            }
+            foreach (var (at, formula) in changes) { other.SetFormulaText(at, formula); touched++; }
+        }
+        return touched;
+    }
+
+    /// <summary>Move a sheet in the running order. Only the list changes; nothing points at a position.</summary>
+    public void MoveSheet(int from, int to)
+    {
+        var entries = SheetList.Elements(D.Sheet + "sheet").ToList();
+        if (from < 0 || from >= entries.Count) return;
+        to = Math.Clamp(to, 0, entries.Count - 1);
+        if (from == to) return;
+
+        var moving = entries[from];
+        moving.Remove();
+        var rest = SheetList.Elements(D.Sheet + "sheet").ToList();
+        if (to >= rest.Count) rest[^1].AddAfterSelf(moving); else rest[to].AddBeforeSelf(moving);
+
+        var sheet = _sheets[from];
+        _sheets.RemoveAt(from);
+        _sheets.Insert(to, sheet);
+        _workbookDirty = true;
+    }
+
+    /// <summary>Take a sheet out of the workbook. Its part stays in the package, unused.</summary>
+    public void RemoveSheet(int index)
+    {
+        var entry = SheetList.Elements(D.Sheet + "sheet").ElementAtOrDefault(index);
+        if (entry is null) return;
+        entry.Remove();
+        _sheets.RemoveAt(index);
+        _workbookDirty = true;
+    }
+
+    /// <summary>Put a new empty sheet in after the one given, counting from 1; nought puts it first.</summary>
+    public void AddSheet(string name, int after)
+    {
+        int n = 1;
+        while (_pkg.Has($"xl/worksheets/sheet{n}.xml")) n++;
+        string part = $"xl/worksheets/sheet{n}.xml";
+
+        var rels = new Rels(_pkg, WorkbookPart);
+        int rid = 1;
+        while (rels[$"rId{rid}"] is not null) rid++;
+        string id = $"rId{rid}";
+
+        var ns = D.Sheet.NamespaceName;
+        _pkg.Add(part, System.Text.Encoding.UTF8.GetBytes(
+            "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>" +
+            $"<worksheet xmlns=\"{ns}\"><sheetData/></worksheet>"));
+
+        AddRelationship(id, $"{DocRelType}/worksheet", $"worksheets/sheet{n}.xml");
+        AddContentType("/" + part,
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml");
+
+        int sheetId = 1;
+        foreach (var existing in SheetList.Elements(D.Sheet + "sheet"))
+            sheetId = Math.Max(sheetId, Xml.Int(existing.Attribute("sheetId"), 1) + 1);
+
+        var made = new XElement(D.Sheet + "sheet",
+            new XAttribute("name", name),
+            new XAttribute("sheetId", sheetId),
+            new XAttribute(D.Rel + "id", id));
+
+        var all = SheetList.Elements(D.Sheet + "sheet").ToList();
+        if (after <= 0 || all.Count == 0) SheetList.AddFirst(made);
+        else if (after >= all.Count) all[^1].AddAfterSelf(made);
+        else all[after - 1].AddAfterSelf(made);
+
+        int at = after <= 0 ? 0 : Math.Min(after, _sheets.Count);
+        _sheets.Insert(at, new Sheet(this, name, part, hidden: false));
+        _workbookDirty = true;
+    }
+
+    private const string DocRelType = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+
+    private void AddRelationship(string id, string type, string target)
+    {
+        int slash = WorkbookPart.LastIndexOf('/');
+        string relsPart = WorkbookPart[..(slash + 1)] + "_rels/" + WorkbookPart[(slash + 1)..] + ".rels";
+        var doc = _pkg.Has(relsPart)
+            ? Xml.Parse(_pkg.Read(relsPart))
+            : XDocument.Parse("<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"/>");
+        XNamespace r = "http://schemas.openxmlformats.org/package/2006/relationships";
+        doc.Root!.Add(new XElement(r + "Relationship",
+            new XAttribute("Id", id), new XAttribute("Type", type), new XAttribute("Target", target)));
+        _pkg.Write(relsPart, Xml.ToBytes(doc));
+    }
+
+    private void AddContentType(string partName, string type)
+    {
+        var doc = Xml.Parse(_pkg.Read("[Content_Types].xml"));
+        XNamespace ct = "http://schemas.openxmlformats.org/package/2006/content-types";
+        if (doc.Root!.Elements(ct + "Override").Any(o => (string?)o.Attribute("PartName") == partName)) return;
+        doc.Root.Add(new XElement(ct + "Override",
+            new XAttribute("PartName", partName), new XAttribute("ContentType", type)));
+        _pkg.Write("[Content_Types].xml", Xml.ToBytes(doc));
+    }
     public string WorkbookPart { get; }
 
     public static bool Looks(OpcPackage pkg) => pkg.Has("xl/workbook.xml");
@@ -366,7 +511,7 @@ public sealed class Sheet
     private XElement? _data;
     private bool _dirty;
 
-    public string Name { get; }
+    public string Name { get; private set; }
     public string PartName { get; }
     public bool Hidden { get; }
 
@@ -496,43 +641,7 @@ public sealed class Sheet
     /// Keep this many rows at the top still. Written where Excel keeps it, so the sheet opens the same way in Excel
     /// as it does here, and cleared away entirely when set back to none rather than left as a pane freezing nothing.
     /// </summary>
-    public void SetFrozenRows(int rows)
-    {
-        rows = Math.Clamp(rows, 0, 100);
-        var sheetElement = Data.Parent!;
-
-        var views = sheetElement.Element(D.Sheet + "sheetViews");
-        if (views is null)
-        {
-            if (rows == 0) return;
-            views = new XElement(D.Sheet + "sheetViews");
-            // sheetViews goes after sheetPr and dimension, and before sheetFormatPr, cols and sheetData.
-            var before = sheetElement.Element(D.Sheet + "sheetFormatPr")
-                      ?? sheetElement.Element(D.Sheet + "cols")
-                      ?? sheetElement.Element(D.Sheet + "sheetData");
-            if (before is not null) before.AddBeforeSelf(views); else sheetElement.Add(views);
-        }
-
-        var view = views.Elements(D.Sheet + "sheetView").FirstOrDefault();
-        if (view is null)
-        {
-            if (rows == 0) return;
-            view = new XElement(D.Sheet + "sheetView", new XAttribute("workbookViewId", 0));
-            views.Add(view);
-        }
-
-        view.Element(D.Sheet + "pane")?.Remove();
-        if (rows > 0)
-        {
-            var pane = new XElement(D.Sheet + "pane",
-                new XAttribute("ySplit", rows),
-                new XAttribute("topLeftCell", "A" + (rows + 1)),
-                new XAttribute("activePane", "bottomLeft"),
-                new XAttribute("state", "frozen"));
-            view.AddFirst(pane);   // pane is the first child of a sheetView
-        }
-        _dirty = true;
-    }
+    public void SetFrozenRows(int rows) => SetFrozen(FrozenColumns, rows);
 
     /// <summary>
     /// The blocks of cells this sheet joins together. A heading across four columns is one cell in the file with a
@@ -804,6 +913,158 @@ public sealed class Sheet
             int current = Xml.Int(cell.Attribute("s"), 0);
             cell.SetAttributeValue("s", _book.Styles.WithWeight(current, bold, italic));
         }
+        _dirty = true;
+    }
+
+    /// <summary>Where the contents of these cells sit, and whether long text wraps rather than running on.</summary>
+    public void SetAlignment(IEnumerable<CellRef> cells, string? horizontal, bool? wrap)
+    {
+        foreach (var reference in cells)
+        {
+            var cell = EnsureCell(reference);
+            int current = Xml.Int(cell.Attribute("s"), 0);
+            cell.SetAttributeValue("s", _book.Styles.WithAlignment(current, horizontal, wrap));
+        }
+        _dirty = true;
+    }
+
+    /// <summary>The colour behind these cells, and the colour of their words. Empty takes a colour away.</summary>
+    public void SetColours(IEnumerable<CellRef> cells, string? background, string? ink)
+    {
+        foreach (var reference in cells)
+        {
+            var cell = EnsureCell(reference);
+            int current = Xml.Int(cell.Attribute("s"), 0);
+            cell.SetAttributeValue("s", _book.Styles.WithColours(current, background, ink));
+        }
+        _dirty = true;
+    }
+
+    /// <summary>What this cell says about where its contents sit.</summary>
+    public (string Horizontal, bool Wrap) AlignmentAt(CellRef reference) =>
+        _book.Styles.AlignmentAt(Xml.Int(FindCell(reference)?.Attribute("s"), 0));
+
+    /// <summary>The colours this cell is wearing, as six hex digits, or empty where it wears none.</summary>
+    public (string Background, string Ink) ColoursAt(CellRef reference) =>
+        _book.Styles.ColoursAt(Xml.Int(FindCell(reference)?.Attribute("s"), 0));
+
+    // ---------- how tall a row is, and what stays on screen ----------
+
+    /// <summary>
+    /// How tall a row is, in points, as the file stores it. Nought means the row says nothing and the sheet's
+    /// own default applies.
+    /// </summary>
+    public double HeightPoints(int row)
+    {
+        var found = FindRow(row);
+        if (found is null) return 0;
+        if ((string?)found.Attribute("customHeight") is not ("1" or "true")) return 0;
+        return double.TryParse((string?)found.Attribute("ht"), NumberStyles.Float, CultureInfo.InvariantCulture, out var h)
+            ? h : 0;
+    }
+
+    /// <summary>Set how tall a row is. Nought puts it back to whatever the sheet says rows should be.</summary>
+    public void SetHeightPoints(int row, double points)
+    {
+        if (row < 1 || row > 1048576) return;
+        var element = EnsureRow(row);
+        if (points <= 0)
+        {
+            element.SetAttributeValue("ht", null);
+            element.SetAttributeValue("customHeight", null);
+        }
+        else
+        {
+            points = Math.Clamp(Math.Round(points, 2), 2, 409);
+            element.SetAttributeValue("ht", points.ToString(CultureInfo.InvariantCulture));
+            element.SetAttributeValue("customHeight", "1");
+        }
+        _dirty = true;
+    }
+
+    /// <summary>The row element, made if it is not there yet, in the right place among its neighbours.</summary>
+    private XElement EnsureRow(int row)
+    {
+        var found = FindRow(row);
+        if (found is not null) return found;
+        var made = new XElement(D.Sheet + "row", new XAttribute("r", row));
+        var after = Data.Elements(D.Sheet + "row").LastOrDefault(r => Xml.Int(r.Attribute("r"), 0) < row);
+        if (after is not null) after.AddAfterSelf(made); else Data.AddFirst(made);
+        RowIndex[row] = made;
+        return made;
+    }
+
+    /// <summary>How many columns at the left the file asks to keep still while the rest scrolls sideways.</summary>
+    public int FrozenColumns
+    {
+        get
+        {
+            var pane = Data.Parent!.Element(D.Sheet + "sheetViews")?
+                .Elements(D.Sheet + "sheetView").FirstOrDefault()?.Element(D.Sheet + "pane");
+            if (pane is null) return 0;
+            if ((string?)pane.Attribute("state") is not ("frozen" or "frozenSplit")) return 0;
+            return Math.Clamp(Xml.Int(pane.Attribute("xSplit"), 0), 0, 100);
+        }
+    }
+
+    /// <summary>
+    /// Keep this many columns at the left still, and this many rows at the top. Both live in the same pane, which
+    /// is why they are set together: setting one on its own would quietly undo the other.
+    /// </summary>
+    public void SetFrozen(int columns, int rows)
+    {
+        columns = Math.Clamp(columns, 0, 100);
+        rows = Math.Clamp(rows, 0, 100);
+        var sheetElement = Data.Parent!;
+
+        var views = sheetElement.Element(D.Sheet + "sheetViews");
+        if (views is null)
+        {
+            if (columns == 0 && rows == 0) return;
+            views = new XElement(D.Sheet + "sheetViews");
+            var before = sheetElement.Element(D.Sheet + "sheetFormatPr")
+                      ?? sheetElement.Element(D.Sheet + "cols")
+                      ?? sheetElement.Element(D.Sheet + "sheetData");
+            if (before is not null) before.AddBeforeSelf(views); else sheetElement.Add(views);
+        }
+
+        var view = views.Elements(D.Sheet + "sheetView").FirstOrDefault();
+        if (view is null)
+        {
+            if (columns == 0 && rows == 0) return;
+            view = new XElement(D.Sheet + "sheetView", new XAttribute("workbookViewId", 0));
+            views.Add(view);
+        }
+
+        view.Element(D.Sheet + "pane")?.Remove();
+        if (columns > 0 || rows > 0)
+        {
+            var corner = new CellRef(columns + 1, rows + 1).ToString();
+            var pane = new XElement(D.Sheet + "pane",
+                new XAttribute("topLeftCell", corner),
+                new XAttribute("activePane", columns > 0 && rows > 0 ? "bottomRight" : columns > 0 ? "topRight" : "bottomLeft"),
+                new XAttribute("state", "frozen"));
+            if (columns > 0) pane.SetAttributeValue("xSplit", columns);
+            if (rows > 0) pane.SetAttributeValue("ySplit", rows);
+            view.AddFirst(pane);
+        }
+        _dirty = true;
+    }
+
+    /// <summary>Called by the workbook when a sheet is renamed; the name on the sheet itself has to follow.</summary>
+    internal void Rename(string name) => Name = name;
+
+    /// <summary>
+    /// Put different text in a cell's formula, leaving everything else about the cell alone. Used when a sheet is
+    /// renamed and every formula that named it has to say the new name. The cached answer is cleared, because the
+    /// formula is the same sum but the text of it changed and a stale cached value would be confusing.
+    /// </summary>
+    internal void SetFormulaText(CellRef reference, string formula)
+    {
+        var cell = FindCell(reference);
+        var element = cell?.Element(D.Sheet + "f");
+        if (element is null) return;
+        element.Value = formula;
         _dirty = true;
     }
 

@@ -60,6 +60,7 @@ public static class SelfTest
         ("table", TableSuite.Run),
         ("hidden", HiddenSuite.Run),
         ("folder", FolderSuite.Run),
+        ("sheets", SheetsSuite.Run),
         ("updates", UpdatesSuite.Run),
         ("corpus", CorpusSuite.Run),
     };

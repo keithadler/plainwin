@@ -16,12 +16,30 @@ public static class Cli
     public const string Version = "1.2.0";
 
     private static readonly string[] Verbs =
-        { "info", "parts", "text", "cells", "get", "set", "new", "replace", "row", "column", "width", "freeze", "sort", "explorer", "slide", "tablerow", "hidden", "find", "props", "pdf", "csv", "import", "count", "images", "apply", "changes", "comments", "roundtrip", "selftest", "version", "help", "--help", "-h", "--version" };
+        { "info", "parts", "text", "cells", "get", "set", "new", "replace", "row", "column", "width", "freeze", "sort", "explorer", "slide", "tablerow", "hidden", "find", "sheet", "height", "align", "colour", "props", "pdf", "csv", "import", "count", "images", "apply", "changes", "comments", "roundtrip", "selftest", "version", "help", "--help", "-h", "--version" };
 
     public static bool IsVerb(string arg) => Verbs.Contains(arg, StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Was this switch given? Switches are compared exactly, so --case is not --Case.</summary>
     private static bool Flag(IReadOnlyList<string> args, string name) => args.Contains(name);
+
+    /// <summary>The sheet by name, or the first one when no name was given.</summary>
+    private static Sheet? PickSheet(Workbook book, string? name) =>
+        name is null ? book.Sheets[0]
+                     : book.Sheets.FirstOrDefault(x => x.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Every cell in a range written as B2 or A2:D40.</summary>
+    private static List<CellRef> Block(string range)
+    {
+        var cells = new List<CellRef>();
+        var ends = range.Split(':');
+        if (!CellRef.TryParse(ends[0], out var from)) return cells;
+        var to = ends.Length > 1 && CellRef.TryParse(ends[1], out var second) ? second : from;
+        for (int r = Math.Min(from.Row, to.Row); r <= Math.Max(from.Row, to.Row); r++)
+            for (int c = Math.Min(from.Column, to.Column); c <= Math.Max(from.Column, to.Column); c++)
+                cells.Add(new CellRef(c, r));
+        return cells;
+    }
 
     /// <summary>What followed this switch, or nothing if it was not given or was given nothing.</summary>
     private static string? Value(IReadOnlyList<string> args, string name)
@@ -44,6 +62,10 @@ public static class Cli
           plain tablerow <file> add|remove <table> <row>  a row in a table in a document
           plain hidden <file> [--remove k,k]  what travels with the file that you may not want to send
           plain find <folder> <words> [--deep]  which Office files in a folder hold those words
+          plain sheet <file> add|rename|remove|move <n> [name|to]   sheets in a workbook
+          plain height <file> <row> <points|auto> [sheet]           how tall a row is
+          plain align <file> <range> left|centre|right|general [--wrap|--nowrap] [--sheet <name>]
+          plain colour <file> <range> [--fill RRGGBB] [--ink RRGGBB] [--sheet <name>]
 
         For pdf: --paper A4|Letter|Legal|A3|A5  --landscape  --margin <mm>
                  --header "<text>"  --footer "<text>"   with {page} and {pages}
@@ -378,6 +400,100 @@ public static class Cli
                     o.WriteLine();
                     o.WriteLine($"{report.Hits.Count} of {report.Looked} files hold it. Nothing was changed.");
                     return report.Hits.Count > 0 ? 0 : 1;
+                }
+
+                case "sheet":
+                {
+                    if (rest.Count < 2) { err.WriteLine("sheet <file> add|rename|remove|move <n> [name|to]"); return 64; }
+                    var file = PlainFile.Open(rest[0]);
+                    if (file.Workbook is null) { err.WriteLine("sheet only works on a spreadsheet."); return 2; }
+                    var book = file.Workbook;
+
+                    string how = rest[1].ToLowerInvariant();
+                    int at = rest.Count > 2 && int.TryParse(rest[2], out var n) ? n : 0;
+                    Sheets.Result outcome = how switch
+                    {
+                        "add" => Sheets.Add(book, rest.Count > 2 ? rest[2] : "Sheet", book.Sheets.Count),
+                        "rename" => rest.Count > 3
+                            ? Sheets.Rename(book, at - 1, rest[3])
+                            : new Sheets.Refused("rename needs the sheet and the new name: rename 2 Invoices"),
+                        "remove" => Sheets.Remove(book, at - 1),
+                        "move" => rest.Count > 3 && int.TryParse(rest[3], out var to)
+                            ? Sheets.Move(book, at, to)
+                            : new Sheets.Refused("move needs the sheet and where it goes: move 3 1"),
+                        _ => new Sheets.Refused("add, rename, remove or move"),
+                    };
+                    if (outcome is Sheets.Refused refused) { err.WriteLine(refused.Reason); return 2; }
+                    file.Flush();
+                    File.WriteAllBytes(file.Path, file.Package.ToBytes());
+                    o.WriteLine(((Sheets.Done)outcome).What);
+                    return 0;
+                }
+
+                case "height":
+                {
+                    if (rest.Count < 3) { err.WriteLine("height <file> <row> <points|auto> [sheet]"); return 64; }
+                    var file = PlainFile.Open(rest[0]);
+                    if (file.Workbook is null) { err.WriteLine("height only works on a spreadsheet."); return 2; }
+                    var sheet = PickSheet(file.Workbook, rest.Count > 3 ? rest[3] : null);
+                    if (sheet is null) { err.WriteLine($"no sheet called \"{rest[3]}\"."); return 2; }
+                    if (!int.TryParse(rest[1], out var row) || row < 1) { err.WriteLine("a row is a number from 1."); return 64; }
+
+                    double points = rest[2].Equals("auto", StringComparison.OrdinalIgnoreCase) ? 0
+                        : double.TryParse(rest[2], System.Globalization.NumberStyles.Float,
+                                          System.Globalization.CultureInfo.InvariantCulture, out var p) ? p : -1;
+                    if (points < 0) { err.WriteLine("a height is a number of points, or the word auto."); return 64; }
+
+                    sheet.SetHeightPoints(row, points);
+                    file.Flush();
+                    File.WriteAllBytes(file.Path, file.Package.ToBytes());
+                    o.WriteLine(points <= 0
+                        ? $"row {row} on {sheet.Name} follows the sheet again"
+                        : $"row {row} on {sheet.Name} is now {sheet.HeightPoints(row)} points tall");
+                    return 0;
+                }
+
+                case "align" or "colour":
+                {
+                    if (rest.Count < 2) { err.WriteLine($"{verb} <file> <range> ..."); return 64; }
+                    var file = PlainFile.Open(rest[0]);
+                    if (file.Workbook is null) { err.WriteLine($"{verb} only works on a spreadsheet."); return 2; }
+                    // These verbs take switches, and a switch's value stays in the positional list, so the sheet
+                    // is named with --sheet rather than by position; "colour f A1 --fill FFE7A1" would otherwise
+                    // read the colour as a sheet name.
+                    var wantedSheet = Value(args, "--sheet");
+                    var sheet = PickSheet(file.Workbook, wantedSheet);
+                    if (sheet is null) { err.WriteLine($"no sheet called \"{wantedSheet}\"."); return 2; }
+
+                    var cells = Block(rest[1]);
+                    if (cells.Count == 0) { err.WriteLine("a range looks like B2 or A2:D40."); return 64; }
+
+                    if (verb == "align")
+                    {
+                        string? where = rest.Count > 2 ? rest[2].ToLowerInvariant() switch
+                        {
+                            "centre" or "center" => "center",
+                            "left" => "left",
+                            "right" => "right",
+                            "general" or "none" => "general",
+                            _ => null,
+                        } : null;
+                        bool? wrap = Flag(args, "--wrap") ? true : Flag(args, "--nowrap") ? false : null;
+                        if (where is null && wrap is null) { err.WriteLine("left, centre, right or general, and --wrap or --nowrap"); return 64; }
+                        sheet.SetAlignment(cells, where, wrap);
+                    }
+                    else
+                    {
+                        var fill = Value(args, "--fill");
+                        var ink = Value(args, "--ink");
+                        if (fill is null && ink is null) { err.WriteLine("--fill RRGGBB and, or, --ink RRGGBB"); return 64; }
+                        sheet.SetColours(cells, fill is "none" ? "" : fill, ink is "none" ? "" : ink);
+                    }
+
+                    file.Flush();
+                    File.WriteAllBytes(file.Path, file.Package.ToBytes());
+                    o.WriteLine($"{cells.Count} cell{(cells.Count == 1 ? "" : "s")} on {sheet.Name} changed");
+                    return 0;
                 }
 
                 case "explorer":
