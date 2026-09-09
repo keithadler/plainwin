@@ -84,6 +84,85 @@ public sealed class Styles
         _ => "",
     };
 
+    /// <summary>
+    /// The style index that is the one a cell has, but bold or not, italic or not. The font is copied and altered
+    /// rather than replaced, so a cell in a particular typeface or colour keeps it.
+    /// </summary>
+    public int WithWeight(int currentStyle, bool? bold, bool? italic)
+    {
+        if (_doc?.Root is null) throw new OpcPackage.PackageException("This workbook has no style table, so Plain cannot change how a cell looks.");
+        var cellXfs = _doc.Root.Element(D.Sheet + "cellXfs") ?? throw new OpcPackage.PackageException("This workbook's style table has no cell formats.");
+        var fonts = _doc.Root.Element(D.Sheet + "fonts") ?? throw new OpcPackage.PackageException("This workbook's style table has no fonts.");
+
+        var all = cellXfs.Elements(D.Sheet + "xf").ToList();
+        var basis = currentStyle >= 0 && currentStyle < all.Count ? all[currentStyle] : all.FirstOrDefault();
+        if (basis is null) throw new OpcPackage.PackageException("This workbook's style table is empty.");
+
+        int fontIndex = Xml.Int(basis.Attribute("fontId"), 0);
+        var allFonts = fonts.Elements(D.Sheet + "font").ToList();
+        var font = fontIndex >= 0 && fontIndex < allFonts.Count ? allFonts[fontIndex] : allFonts.FirstOrDefault();
+        if (font is null) throw new OpcPackage.PackageException("This workbook's style table has no fonts.");
+
+        var wanted = new XElement(font);
+        Mark(wanted, "b", bold);
+        Mark(wanted, "i", italic);
+
+        int newFont = allFonts.FindIndex(f => Same(f, wanted));
+        if (newFont < 0)
+        {
+            fonts.Add(wanted);
+            fonts.SetAttributeValue("count", allFonts.Count + 1);
+            newFont = allFonts.Count;
+            _dirty = true;
+        }
+
+        for (int i = 0; i < all.Count; i++)
+            if (Xml.Int(all[i].Attribute("fontId"), 0) == newFont
+                && Xml.Int(all[i].Attribute("numFmtId"), 0) == Xml.Int(basis.Attribute("numFmtId"), 0)
+                && (string?)all[i].Attribute("fillId") == (string?)basis.Attribute("fillId")
+                && (string?)all[i].Attribute("borderId") == (string?)basis.Attribute("borderId"))
+                return i;
+
+        var made = new XElement(basis);
+        made.SetAttributeValue("fontId", newFont);
+        made.SetAttributeValue("applyFont", "1");
+        cellXfs.Add(made);
+        cellXfs.SetAttributeValue("count", all.Count + 1);
+        if (_formats.TryGetValue(currentStyle, out var carried)) _formats[all.Count] = carried;
+        _dirty = true;
+        return all.Count;
+
+        // A font's children have to come in the order the format lays down - bold, then italic, then everything else -
+        // and Excel refuses a file that puts them anywhere else. So both are lifted out and put back at the front.
+        void Mark(XElement target, string name, bool? on)
+        {
+            if (on is null) return;
+            bool bold = target.Element(D.Sheet + "b") is not null;
+            bool italic = target.Element(D.Sheet + "i") is not null;
+            if (name == "b") bold = on.Value; else italic = on.Value;
+
+            target.Elements(D.Sheet + "b").Remove();
+            target.Elements(D.Sheet + "i").Remove();
+            if (italic) target.AddFirst(new XElement(D.Sheet + "i"));
+            if (bold) target.AddFirst(new XElement(D.Sheet + "b"));
+        }
+
+        static bool Same(XElement a, XElement b) => XNode.DeepEquals(a, b);
+    }
+
+    /// <summary>Is the cell's font bold, or italic?</summary>
+    public bool HasWeight(int styleIndex, string mark)
+    {
+        var cellXfs = _doc?.Root?.Element(D.Sheet + "cellXfs");
+        var fonts = _doc?.Root?.Element(D.Sheet + "fonts");
+        if (cellXfs is null || fonts is null) return false;
+        var all = cellXfs.Elements(D.Sheet + "xf").ToList();
+        if (styleIndex < 0 || styleIndex >= all.Count) return false;
+        int fontIndex = Xml.Int(all[styleIndex].Attribute("fontId"), 0);
+        var allFonts = fonts.Elements(D.Sheet + "font").ToList();
+        return fontIndex >= 0 && fontIndex < allFonts.Count && allFonts[fontIndex].Element(D.Sheet + mark) is not null;
+    }
+
     /// <summary>The format code a cell's style asks for, empty when it has none.</summary>
     public string CodeAt(int styleIndex) => _formats.TryGetValue(styleIndex, out var code) ? code : "";
 

@@ -279,6 +279,8 @@ public partial class MainWindow : Window
             case Key.N: OnNew(sender, e); e.Handled = true; break;
             case Key.P: OnPrint(sender, e); e.Handled = true; break;
             case Key.D: FillDown(); e.Handled = true; break;
+            case Key.B: Mark("b"); e.Handled = true; break;
+            case Key.I: Mark("i"); e.Handled = true; break;
             case Key.OemPlus or Key.Add: Bigger(); e.Handled = true; break;
             case Key.OemMinus or Key.Subtract: Smaller(); e.Handled = true; break;
             case Key.D0 or Key.NumPad0: NormalSize(); e.Handled = true; break;
@@ -545,6 +547,80 @@ public partial class MainWindow : Window
         catch (Exception ex) { Say("Could not change the sheet: " + Explain(ex)); }
     }
 
+    // ---------- bold, italic, headings ----------
+
+    private void OnBold(object sender, RoutedEventArgs e) => Mark("b");
+    private void OnItalic(object sender, RoutedEventArgs e) => Mark("i");
+
+    /// <summary>Turn bold or italic on for whatever is selected, or off if it is already on throughout.</summary>
+    private void Mark(string mark)
+    {
+        if (_active is null) return;
+        try
+        {
+            var before = Snapshot(_active);
+            switch (_active.View)
+            {
+                case WorkbookView view:
+                {
+                    var cells = view.CurrentGrid.SelectedCells().ToList();
+                    if (cells.Count == 0) return;
+                    bool on = !cells.All(c => view.CurrentGrid.Sheet.HasWeight(c, mark));
+                    view.CurrentGrid.Sheet.SetWeight(cells, mark == "b" ? on : null, mark == "i" ? on : null);
+                    view.CurrentGrid.Reload();
+                    Say($"{cells.Count} cell{(cells.Count == 1 ? "" : "s")} {(on ? "now" : "no longer")} {(mark == "b" ? "bold" : "italic")}.");
+                    break;
+                }
+                case DocView doc:
+                {
+                    int? at = doc.FocusedBlock;
+                    if (at is not { } index) { Say("Click the line you want to change first."); return; }
+                    bool on = !_active.File.Document!.IsAll(index, mark);
+                    _active.File.Document.SetMark(index, mark, on);
+                    Say($"That line is {(on ? "now" : "no longer")} {(mark == "b" ? "bold" : "italic")}.");
+                    break;
+                }
+                default: return;
+            }
+            _active.Dirty = true;
+            _active.Undo.Push(() => Restore(_active, before));
+        }
+        catch (Exception ex) { Say("Could not change that: " + Explain(ex)); }
+        Refresh();
+    }
+
+    private bool _settingStyle;
+
+    private void OnStylePicked(object sender, SelectionChangedEventArgs e)
+    {
+        if (_settingStyle || _active?.View is not DocView doc) return;
+        if (StylePicker.SelectedItem is not ComboBoxItem { Tag: BlockKind kind }) return;
+        if (doc.FocusedBlock is not { } index) { Say("Click the line you want to change first."); return; }
+
+        try
+        {
+            var before = Snapshot(_active);
+            if (!_active.File.Document!.SetKind(index, kind))
+            {
+                Say("This document has no heading style of that level, and Plain will not invent one.");
+                return;
+            }
+            _active.Dirty = true;
+            _active.Undo.Push(() => Restore(_active, before));
+            Rebuild(_active);
+            Say(kind == BlockKind.Paragraph ? "That line is ordinary text now." : $"That line is a {Name(kind)} now.");
+        }
+        catch (Exception ex) { Say("Could not change that: " + Explain(ex)); }
+    }
+
+    private static string Name(BlockKind kind) => kind switch
+    {
+        BlockKind.Heading1 => "main heading",
+        BlockKind.Heading2 => "heading",
+        BlockKind.Heading3 => "small heading",
+        _ => "ordinary text",
+    };
+
     // ---------- how cells show their numbers ----------
 
     private bool _settingFormat;
@@ -670,7 +746,10 @@ public partial class MainWindow : Window
         }
 
         FillFormatPicker();
+        FillStylePicker();
         FillNotes();
+        bool canMark = _active.File.Kind is FileKind.Spreadsheet or FileKind.Document;
+        BoldBtn.Visibility = ItalicBtn.Visibility = canMark ? Visibility.Visible : Visibility.Collapsed;
 
         var parts = _active.File.Parts();
         var kept = parts.Where(p => p.Role == PartRole.Preserved).ToList();
@@ -731,6 +810,34 @@ public partial class MainWindow : Window
             if (match is null) FormatPicker.Text = current.Length == 0 ? "General" : current;
         }
         finally { _settingFormat = false; }
+    }
+
+    /// <summary>Offer the heading levels this document actually has.</summary>
+    private void FillStylePicker()
+    {
+        if (_active?.File.Kind != FileKind.Document || _active.File.Document is null)
+        {
+            StylePicker.Visibility = Visibility.Collapsed;
+            return;
+        }
+        StylePicker.Visibility = Visibility.Visible;
+        _settingStyle = true;
+        try
+        {
+            var kinds = _active.File.Document.AvailableKinds();
+            if (StylePicker.Items.Count != kinds.Count)
+            {
+                StylePicker.Items.Clear();
+                foreach (var kind in kinds)
+                    StylePicker.Items.Add(new ComboBoxItem { Content = Name(kind), Tag = kind });
+            }
+            var at = (_active.View as DocView)?.FocusedBlock;
+            var current = at is { } index ? _active.File.Document.Read(index).Kind : BlockKind.Paragraph;
+            if (current is BlockKind.ListItem or BlockKind.TableCell) current = BlockKind.Paragraph;
+            StylePicker.SelectedItem = StylePicker.Items.Cast<ComboBoxItem>()
+                .FirstOrDefault(i => (BlockKind)i.Tag == current);
+        }
+        finally { _settingStyle = false; }
     }
 
     /// <summary>What other people wrote, and whether there is anything to show at all.</summary>

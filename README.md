@@ -50,6 +50,8 @@ Change one cell and only the parts that hold that cell are rewritten. The status
 
 **Fill down** with Ctrl+D copies the top of a selection through the rest of it, moving formulas the way Excel does.
 
+**Bold and italic** with Ctrl+B and Ctrl+I, on the line you are typing in or on the cells you have picked out, and a picker that makes a line a heading. Plain only offers heading levels the document already has, because a heading style it invented would not match the rest of somebody's document. It does not do bullets.
+
 **Bigger text** with Ctrl+plus, and back with Ctrl+0. **F6** moves between the parts of the window, so the keyboard never gets stuck in the grid. The last ten files you opened are offered when nothing is.
 
 **Save a copy** writes the file, with your changes, under a new name and leaves the original alone. The copy is a whole file, not a patch: everything Plain preserved is in it byte for byte.

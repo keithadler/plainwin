@@ -576,6 +576,25 @@ public sealed class Sheet
         _dirty = true;
     }
 
+    /// <summary>Make the cells bold or italic, or take it off, keeping everything else about their font.</summary>
+    public void SetWeight(IEnumerable<CellRef> cells, bool? bold, bool? italic)
+    {
+        foreach (var reference in cells)
+        {
+            var cell = EnsureCell(reference);
+            int current = Xml.Int(cell.Attribute("s"), 0);
+            cell.SetAttributeValue("s", _book.Styles.WithWeight(current, bold, italic));
+        }
+        _dirty = true;
+    }
+
+    /// <summary>Is this cell bold, or italic?</summary>
+    public bool HasWeight(CellRef reference, string mark)
+    {
+        var cell = FindCell(reference);
+        return cell is not null && _book.Styles.HasWeight(Xml.Int(cell.Attribute("s"), 0), mark);
+    }
+
     /// <summary>How the cell is shown now, as a format code; empty when it has no instructions.</summary>
     public string FormatOf(CellRef reference)
     {

@@ -102,6 +102,90 @@ public sealed class Document
         return lossless;
     }
 
+    /// <summary>Is every run in this block already bold, or italic? Used to make the button show what is true.</summary>
+    public bool IsAll(int index, string mark)
+    {
+        var runs = _paragraphs[index].Elements(D.Word + "r").ToList();
+        if (runs.Count == 0) return false;
+        return runs.All(r => r.Element(D.Word + "rPr")?.Element(D.Word + mark) is not null);
+    }
+
+    /// <summary>
+    /// Turn bold or italic on or off for a whole block. Plain edits a block at a time, so it formats one at a time
+    /// too: enough for a heading that looks like a heading and a notice that stands out, which is what people asked
+    /// for, without pretending to be a word processor.
+    /// </summary>
+    public void SetMark(int index, string mark, bool on)
+    {
+        foreach (var run in _paragraphs[index].Elements(D.Word + "r"))
+        {
+            var properties = run.Element(D.Word + "rPr");
+            if (on)
+            {
+                if (properties is null) { properties = new XElement(D.Word + "rPr"); run.AddFirst(properties); }
+                if (properties.Element(D.Word + mark) is null) properties.AddFirst(new XElement(D.Word + mark));
+            }
+            else properties?.Elements(D.Word + mark).Remove();
+        }
+        _dirty = true;
+    }
+
+    /// <summary>
+    /// Make a block a heading, or ordinary text again. The style has to exist in the document already; Plain does not
+    /// invent one, because a heading style it made up would not match the rest of somebody's document.
+    /// </summary>
+    public bool SetKind(int index, BlockKind kind)
+    {
+        string? style = kind switch
+        {
+            BlockKind.Heading1 => "Heading1",
+            BlockKind.Heading2 => "Heading2",
+            BlockKind.Heading3 => "Heading3",
+            BlockKind.Paragraph => null,
+            _ => throw new ArgumentOutOfRangeException(nameof(kind), "Plain sets headings and ordinary text."),
+        };
+
+        if (style is not null && !HasStyle(style)) return false;
+
+        var paragraph = _paragraphs[index];
+        var properties = paragraph.Element(D.Word + "pPr");
+        if (style is null)
+        {
+            properties?.Elements(D.Word + "pStyle").Remove();
+        }
+        else
+        {
+            if (properties is null) { properties = new XElement(D.Word + "pPr"); paragraph.AddFirst(properties); }
+            properties.Elements(D.Word + "pStyle").Remove();
+            properties.AddFirst(new XElement(D.Word + "pStyle", new XAttribute(D.Word + "val", style)));
+        }
+        _dirty = true;
+        return true;
+    }
+
+    private bool HasStyle(string id)
+    {
+        if (!_pkg.Has("word/styles.xml")) return false;
+        try
+        {
+            var styles = Xml.Parse(_pkg.Read("word/styles.xml"));
+            var d = Dialect.Of(styles.Root!);
+            return styles.Root!.Elements(d.Word + "style")
+                .Any(x => string.Equals((string?)x.Attribute(d.Word + "styleId"), id, StringComparison.OrdinalIgnoreCase));
+        }
+        catch { return false; }
+    }
+
+    /// <summary>Which heading styles this document actually has, so only those are offered.</summary>
+    public IReadOnlyList<BlockKind> AvailableKinds()
+    {
+        var kinds = new List<BlockKind> { BlockKind.Paragraph };
+        if (HasStyle("Heading1")) kinds.Add(BlockKind.Heading1);
+        if (HasStyle("Heading2")) kinds.Add(BlockKind.Heading2);
+        if (HasStyle("Heading3")) kinds.Add(BlockKind.Heading3);
+        return kinds;
+    }
+
     public string PlainText() => string.Join(Environment.NewLine, Blocks().Select(b => b.Text));
 
     public void Flush() { if (_dirty) { _pkg.Write(BodyPart, Xml.ToBytes(_doc)); _dirty = false; } }

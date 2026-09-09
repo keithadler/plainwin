@@ -2,7 +2,9 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Data;
+using System.Windows.Input;
 using System.Windows.Media;
 using Plain.Core;
 // Plain.Core has its own Grid, for rows and columns of a sheet; in this file Grid means the WPF panel.
@@ -22,6 +24,9 @@ public sealed class DocView : Grid, IFindable
     private readonly ObservableCollection<object> _rows = new();
 
     public event Action<Action>? Edited;
+
+    /// <summary>The block the caret is in, so a format button knows what to act on.</summary>
+    public int? FocusedBlock { get; private set; }
 
     /// <summary>True once an edit flattened mixed formatting inside one block, so the app can say so honestly.</summary>
     public bool FlattenedSomething { get; private set; }
