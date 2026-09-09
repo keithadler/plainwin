@@ -511,6 +511,30 @@ public partial class MainWindow : Window
         Say($"Turned down {settled} tracked change{(settled == 1 ? "" : "s")}: what was struck out is back.");
     }
 
+    private void OnMore(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button button || button.ContextMenu is null) return;
+        button.ContextMenu.PlacementTarget = button;
+        button.ContextMenu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
+        button.ContextMenu.IsOpen = true;
+    }
+
+    /// <summary>
+    /// Which version this is, and where the help lives. An IT department cannot support three hundred people if the
+    /// first question on every call needs a command prompt to answer.
+    /// </summary>
+    private void OnAbout(object sender, RoutedEventArgs e)
+    {
+        MessageBox.Show(this,
+            $"Plain for Windows {Cli.Version}\n\n" +
+            "Opens Word, Excel and PowerPoint files, edits the basics, and never damages what it doesn't understand.\n\n" +
+            "The panel on the right names everything in a file that Plain keeps but cannot draw. All of it is written " +
+            "back exactly as it was found, so nothing you cannot see is at risk when you save.\n\n" +
+            "Free and MIT licensed. No account, no cloud, nothing sent anywhere.\n\n" +
+            $"Settings and kept copies live in:\n{Settings.Folder}",
+            "About Plain", MessageBoxButton.OK, MessageBoxImage.Information);
+    }
+
     private void OnSettings(object sender, RoutedEventArgs e)
     {
         var dialog = new ReadingSettings(_settings) { Owner = this };
@@ -913,7 +937,7 @@ public partial class MainWindow : Window
             _ => "",
         };
 
-        PrintBtn.IsEnabled = _active is not null;
+        MoreBtn.IsEnabled = true;
         FormatPicker.Visibility = _active?.File.Kind == FileKind.Spreadsheet ? Visibility.Visible : Visibility.Collapsed;
 
         if (_active is null)

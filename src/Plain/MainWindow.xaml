@@ -33,8 +33,6 @@
         <Button x:Name="SaveBtn" Style="{StaticResource Flat}" Content="Save" Click="OnSave" DockPanel.Dock="Left" Margin="2,0,0,0"/>
         <Button x:Name="CopyBtn" Style="{StaticResource Flat}" Content="Save a copy" Click="OnSaveCopy" DockPanel.Dock="Left" Margin="2,0,0,0"/>
         <Button x:Name="UndoBtn" Style="{StaticResource Flat}" Content="Undo" Click="OnUndo" DockPanel.Dock="Left" Margin="2,0,0,0"/>
-        <Button x:Name="PrintBtn" Style="{StaticResource Flat}" Content="Print" Click="OnPrint" DockPanel.Dock="Left" Margin="2,0,0,0"/>
-        <Button x:Name="PdfBtn" Style="{StaticResource Flat}" Content="PDF" Click="OnPdf" DockPanel.Dock="Left" Margin="2,0,0,0" ToolTip="Write this out as a PDF"/>
         <Border x:Name="Sep1" Width="1" Background="{DynamicResource Line}" Height="18" Margin="8,0" DockPanel.Dock="Left"/>
         <Button x:Name="BoldBtn" Style="{StaticResource Flat}" Content="B" FontWeight="Bold" Width="30"
                 Click="OnBold" DockPanel.Dock="Left" Visibility="Collapsed" ToolTip="Bold (Ctrl+B)"/>
@@ -55,8 +53,19 @@
                 DockPanel.Dock="Left" Visibility="Collapsed"/>
         <Button x:Name="PicturesBtn" Style="{StaticResource Flat}" Content="Pictures" Click="OnTogglePictures"
                 DockPanel.Dock="Left" Margin="2,0,0,0" Visibility="Collapsed"/>
-        <Button x:Name="SettingsBtn" Style="{StaticResource Flat}" Content="Reading" Click="OnSettings"
-                DockPanel.Dock="Right" Margin="6,0,0,0" ToolTip="Font, paper colour and spacing"/>
+        <Button x:Name="MoreBtn" Style="{StaticResource Flat}" Content="More" Click="OnMore"
+                DockPanel.Dock="Right" Margin="6,0,0,0">
+          <Button.ContextMenu>
+            <ContextMenu x:Name="MoreMenu">
+              <MenuItem Header="Print…" Click="OnPrint" InputGestureText="Ctrl+P"/>
+              <MenuItem Header="Save as PDF…" Click="OnPdf"/>
+              <Separator/>
+              <MenuItem Header="Reading…" Click="OnSettings"/>
+              <Separator/>
+              <MenuItem x:Name="AboutItem" Header="About Plain" Click="OnAbout"/>
+            </ContextMenu>
+          </Button.ContextMenu>
+        </Button>
         <TextBlock x:Name="ContextHint" DockPanel.Dock="Left" VerticalAlignment="Center"
                    Foreground="{DynamicResource Ink3}" FontSize="12"/>
         <Button x:Name="KeepBtn" Style="{StaticResource Flat}" Click="OnToggleRail" DockPanel.Dock="Right"
