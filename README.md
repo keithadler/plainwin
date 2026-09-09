@@ -119,7 +119,7 @@ folder beside it. It then leaves nothing at all on the machine.
 
 | | |
 |---|---|
-| Checks in the engine | 995 |
+| Checks in the engine | 1,008 |
 | End to end through the console | 52 |
 | Driving the real window with real keystrokes | 29 |
 | Real business documents round tripped byte for byte | 39 of 39 |
@@ -177,6 +177,7 @@ plain freeze <file> <rows> [columns]
 plain align|colour|border <file> <range> ...
 plain slide <file> add|remove|move
 plain tablerow <file> add|remove <table> <row>
+plain paragraph <file> add|remove <number>
 plain link|picture <file> ...
 plain band <file> header|footer <text>
 plain props <file> [--set Name=value] [--strip]

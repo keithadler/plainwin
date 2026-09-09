@@ -50,6 +50,8 @@
               <MenuItem x:Name="RemoveSlideItem" Header="Take this slide out" Click="OnRemoveSlide"/>
               <MenuItem x:Name="MoveSlideUpItem" Header="Move this slide earlier" Click="OnMoveSlideUp"/>
               <MenuItem x:Name="MoveSlideDownItem" Header="Move this slide later" Click="OnMoveSlideDown"/>
+              <MenuItem x:Name="AddParagraphItem" Header="Add a paragraph after this one" Click="OnAddParagraph"/>
+              <MenuItem x:Name="RemoveParagraphItem" Header="Take this paragraph out" Click="OnRemoveParagraph"/>
               <MenuItem x:Name="AddTableRowItem" Header="Add a row to the table…" Click="OnAddTableRow"/>
               <MenuItem x:Name="RemoveTableRowItem" Header="Take a row out of the table…" Click="OnRemoveTableRow"/>
               <Separator/>

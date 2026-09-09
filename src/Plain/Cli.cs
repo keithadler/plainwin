@@ -13,10 +13,10 @@ namespace Plain;
 /// </summary>
 public static class Cli
 {
-    public const string Version = "1.4.3";
+    public const string Version = "1.4.4";
 
     private static readonly string[] Verbs =
-        { "info", "parts", "text", "cells", "get", "set", "new", "replace", "row", "column", "width", "freeze", "sort", "explorer", "slide", "tablerow", "hidden", "find", "sheet", "height", "align", "colour", "band", "links", "compare", "border", "tidy", "reads", "choices", "notes", "describe", "link", "picture", "props", "pdf", "csv", "import", "count", "images", "apply", "changes", "comments", "roundtrip", "selftest", "version", "help", "--help", "-h", "--version" };
+        { "info", "parts", "text", "cells", "get", "set", "new", "replace", "row", "column", "width", "freeze", "sort", "explorer", "slide", "tablerow", "paragraph", "hidden", "find", "sheet", "height", "align", "colour", "band", "links", "compare", "border", "tidy", "reads", "choices", "notes", "describe", "link", "picture", "props", "pdf", "csv", "import", "count", "images", "apply", "changes", "comments", "roundtrip", "selftest", "version", "help", "--help", "-h", "--version" };
 
     public static bool IsVerb(string arg) => Verbs.Contains(arg, StringComparer.OrdinalIgnoreCase);
 
@@ -70,6 +70,7 @@ public static class Cli
           plain explorer on|off|status     "Edit in Plain" on the right-click menu, for your account only
           plain slide <file> add|remove|move <n> [to]   add, take out or move a slide
           plain tablerow <file> add|remove <table> <row>  a row in a table in a document
+          plain paragraph <file> add|remove <number>    a paragraph in a document
           plain hidden <file> [--remove k,k]  what travels with the file that you may not want to send
           plain find <folder> <words> [--deep]  which Office files in a folder hold those words
           plain sheet <file> add|rename|remove|move <n> [name|to]   sheets in a workbook
@@ -372,6 +373,28 @@ public static class Cli
                     {
                         "add" => file.Document.InsertRow(table - 1, row),
                         "remove" => file.Document.DeleteRow(table - 1, row),
+                        _ => new TableRows.Refused("add or remove"),
+                    };
+                    if (outcome is TableRows.Refused refused) { err.WriteLine(refused.Reason); return 2; }
+                    file.Flush();
+                    File.WriteAllBytes(file.Path, file.Package.ToBytes());
+                    o.WriteLine(((TableRows.Done)outcome).What);
+                    return 0;
+                }
+
+                case "paragraph":
+                {
+                    if (rest.Count < 3) { err.WriteLine("paragraph <file> add|remove <number>"); return 64; }
+                    var file = PlainFile.Open(rest[0]);
+                    if (file.Document is null) { err.WriteLine("paragraph only works on a document."); return 2; }
+                    if (!int.TryParse(rest[2], out var which))
+                    { err.WriteLine("the paragraph is a number, counting from 1."); return 64; }
+
+                    var outcome = rest[1].ToLowerInvariant() switch
+                    {
+                        // Add puts one after the paragraph named; remove takes that one out.
+                        "add" => file.Document.InsertParagraph(which - 1),
+                        "remove" => file.Document.DeleteParagraph(which - 1),
                         _ => new TableRows.Refused("add or remove"),
                     };
                     if (outcome is TableRows.Refused refused) { err.WriteLine(refused.Reason); return 2; }

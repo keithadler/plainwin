@@ -1361,6 +1361,25 @@ public partial class MainWindow : Window
         AfterShapeChange(((Core.Slides.Done)outcome).What);
     }
 
+    private void OnAddParagraph(object sender, RoutedEventArgs e) => Paragraph(add: true);
+    private void OnRemoveParagraph(object sender, RoutedEventArgs e) => Paragraph(add: false);
+
+    /// <summary>
+    /// A paragraph added after the one the caret is in, or that one taken out. Without this a document could
+    /// never gain a paragraph, which made a new one — which has exactly one — a document of one line for ever.
+    /// </summary>
+    private void Paragraph(bool add)
+    {
+        if (_active?.File.Document is not { } doc) return;
+        if (_active.View is not DocView view) return;
+
+        // Where the caret is, if it is anywhere. Otherwise the end, which is where a new paragraph usually goes.
+        int at = view.FocusedBlock ?? doc.Blocks().Count(b => !b.InTable) - 1;
+        var outcome = add ? doc.InsertParagraph(at) : doc.DeleteParagraph(at);
+        if (outcome is Core.TableRows.Refused refused) { Say(refused.Reason); return; }
+        AfterShapeChange(((Core.TableRows.Done)outcome).What);
+    }
+
     private void OnAddTableRow(object sender, RoutedEventArgs e) => TableRow(add: true);
     private void OnRemoveTableRow(object sender, RoutedEventArgs e) => TableRow(add: false);
 
@@ -2046,7 +2065,10 @@ public partial class MainWindow : Window
             item.Visibility = isDeck ? Visibility.Visible : Visibility.Collapsed;
         foreach (var item in new[] { AddTableRowItem, RemoveTableRowItem })
             item.Visibility = hasTables ? Visibility.Visible : Visibility.Collapsed;
-        ShapeSeparator.Visibility = isDeck || hasTables ? Visibility.Visible : Visibility.Collapsed;
+        bool isDoc = _active?.View is DocView;
+        foreach (var item in new[] { AddParagraphItem, RemoveParagraphItem })
+            item.Visibility = isDoc ? Visibility.Visible : Visibility.Collapsed;
+        ShapeSeparator.Visibility = isDeck || hasTables || isDoc ? Visibility.Visible : Visibility.Collapsed;
         BandsItem.Visibility = _active?.File.Document is not null ? Visibility.Visible : Visibility.Collapsed;
         PictureItem.Visibility = _active?.File.Document is not null ? Visibility.Visible : Visibility.Collapsed;
         NotesItem.Visibility = isDeck ? Visibility.Visible : Visibility.Collapsed;
