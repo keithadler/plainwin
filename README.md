@@ -4,9 +4,9 @@ Opens Word, Excel and PowerPoint files. Edits the things you actually change. Ne
 
 ## Download
 
-**[Plain-for-Windows-1.4.3-x64.exe](https://github.com/keithadler/plainwin/releases/latest/download/Plain-for-Windows-1.4.3-x64.exe)** — for ordinary Intel and AMD PCs
+**[Plain-for-Windows-1.4.4-x64.exe](https://github.com/keithadler/plainwin/releases/latest/download/Plain-for-Windows-1.4.4-x64.exe)** — for ordinary Intel and AMD PCs
 
-**[Plain-for-Windows-1.4.3-arm64.exe](https://github.com/keithadler/plainwin/releases/latest/download/Plain-for-Windows-1.4.3-arm64.exe)** — for Windows on ARM
+**[Plain-for-Windows-1.4.4-arm64.exe](https://github.com/keithadler/plainwin/releases/latest/download/Plain-for-Windows-1.4.4-arm64.exe)** — for Windows on ARM
 
 Then:
 
@@ -22,7 +22,7 @@ are built by [a public job](.github/workflows/release.yml) from a commit you can
 them.
 
 ```powershell
-Get-FileHash "Plain-for-Windows-1.4.3-x64.exe" -Algorithm SHA256
+Get-FileHash "Plain-for-Windows-1.4.4-x64.exe" -Algorithm SHA256
 ```
 
 ![Plain showing a workbook](docs/screenshots/book.png)
@@ -140,8 +140,8 @@ and demands a byte-identical round trip on every one.
 ## The console twin
 
 `plain.exe` is the same program without a window, for scripts and scheduled jobs.
-[x64](https://github.com/keithadler/plainwin/releases/latest/download/plain-1.4.3-x64.exe) ·
-[arm64](https://github.com/keithadler/plainwin/releases/latest/download/plain-1.4.3-arm64.exe)
+[x64](https://github.com/keithadler/plainwin/releases/latest/download/plain-1.4.4-x64.exe) ·
+[arm64](https://github.com/keithadler/plainwin/releases/latest/download/plain-1.4.4-arm64.exe)
 
 **Reading**
 
