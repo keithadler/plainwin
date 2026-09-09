@@ -100,13 +100,30 @@ Check "a pdf can be given paper and a footer" {
   $text -match "MediaBox \[0 0 792" -and $text -match "Page 1 of"
 }
 
-Check "the right-click menu goes on and comes off cleanly" {
-  & $Exe explorer on | Out-Null
-  $on = (& $Exe explorer status | Out-String) -match "^on"
-  & $Exe explorer off | Out-Null
-  $off = (& $Exe explorer status | Out-String) -match "^off"
-  $left = Test-Path "HKCU:\Software\Classes\Plain.Document"
-  $on -and $off -and (-not $left)
+# The right-click line has to point at the window, so the console twin looks for it beside itself. Where only the
+# twin has been published, as on a build machine, there is nothing to point at and Plain must say so rather than
+# registering a command that opens nothing. Both are worth checking, so this runs whichever applies.
+$window = Join-Path (Split-Path -Parent (Resolve-Path $Exe)) "Plain for Windows.exe"
+if (Test-Path $window) {
+  Check "the right-click menu goes on and comes off cleanly" {
+    & $Exe explorer on | Out-Null
+    $on = (& $Exe explorer status | Out-String) -match "^on"
+    & $Exe explorer off | Out-Null
+    $off = (& $Exe explorer status | Out-String) -match "^off"
+    $left = Test-Path "HKCU:\Software\Classes\Plain.Document"
+    $on -and $off -and (-not $left)
+  }
+} else {
+  Check "with no window beside it, the right-click menu refuses and says why" {
+    $said = (& $Exe explorer on | Out-String)
+    $said -match "Plain for Windows.exe"
+  }
+  Check "and it does not claim to be on" {
+    (& $Exe explorer status | Out-String) -match "^off"
+  }
+  Check "and it leaves nothing behind in the registry" {
+    -not (Test-Path "HKCU:\Software\Classes\Plain.Document")
+  }
 }
 
 # A switch that takes a value must not be read as one of the words the verb was given. This went wrong once:
