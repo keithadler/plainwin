@@ -23,6 +23,13 @@ public partial class App : Application
             ApplyTheme(args.Contains("--dark"));
             Screenshots.ShowNotes = args.Contains("--notes");
             var files = args.Skip(flag + 2).Where(a => !a.StartsWith('-')).ToList();
+            if (args.Contains("--announce"))
+            {
+                Application.Current.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+                Promo.Render(args[flag + 1], files, Console.Out);
+                Shutdown(0);
+                return;
+            }
             Shutdown(Screenshots.Render(args[flag + 1], files, args.Contains("--dark")));
             return;
         }

@@ -74,6 +74,7 @@ public partial class MainWindow : Window
         _keeper.Tick += (_, _) =>
         {
             if (!_settings.KeepRecovery) return;
+            CommitPendingEdit();
             foreach (var file in _open.Where(f => f.Dirty))
                 Recovery.Keep(file.File, file.FilePath);
         };
@@ -373,9 +374,27 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// The editors hand their text over when they lose the caret, which is what keeps a long document from rebuilding
+    /// on every keystroke. Anything that reads the file has to take the caret away first, or it reads the file without
+    /// the words just typed. A file with one box in it, which is exactly what a new blank document is, never loses the
+    /// caret on its own, so without this you could type a page into a new document, save, and save nothing.
+    /// </summary>
+    private void CommitPendingEdit()
+    {
+        if (Keyboard.FocusedElement is not TextBox box) return;
+        box.GetBindingExpression(TextBox.TextProperty)?.UpdateSource();
+        var scope = FocusManager.GetFocusScope(box);
+        FocusManager.SetFocusedElement(scope, null);
+        Keyboard.ClearFocus();
+        // Put the caret back where the typing was, so saving does not also move you.
+        if (box.IsVisible) { int at = box.SelectionStart; box.Focus(); box.Select(at, 0); }
+    }
+
     private void OnSave(object sender, RoutedEventArgs e)
     {
         if (_active is null) return;
+        CommitPendingEdit();
 
         if (_active.File.IsReadOnly())
         {
@@ -414,6 +433,7 @@ public partial class MainWindow : Window
     private void OnSaveCopy(object sender, RoutedEventArgs e)
     {
         if (_active is null) return;
+        CommitPendingEdit();
         var extension = Path.GetExtension(_active.FilePath);
         var dialog = new SaveFileDialog
         {
@@ -753,6 +773,7 @@ public partial class MainWindow : Window
     private void OnPdf(object sender, RoutedEventArgs e)
     {
         if (_active is null) return;
+        CommitPendingEdit();
         var dialog = new SaveFileDialog
         {
             Title = "Save as PDF",
@@ -935,6 +956,7 @@ public partial class MainWindow : Window
     /// </summary>
     private void OnPrint(object sender, RoutedEventArgs e)
     {
+        CommitPendingEdit();
         if (_active?.View is not FrameworkElement view) return;
 
         var dialog = new System.Windows.Controls.PrintDialog();

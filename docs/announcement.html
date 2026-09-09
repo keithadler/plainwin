@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Plain for Windows</title>
+<style>
+  :root { color-scheme: light dark; --fg:#1d1d22; --muted:#5f5f6b; --bg:#fff; --card:#f4f4f7; --accent:#8e6214; }
+  @media (prefers-color-scheme: dark) { :root { --fg:#f2f2f5; --muted:#a2a2ab; --bg:#141418; --card:#232328; --accent:#d6a23e; } }
+  body { margin:0; font:17px/1.55 "Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,sans-serif; color:var(--fg); background:var(--bg); }
+  main { max-width:900px; margin:0 auto; padding:56px 24px 96px; }
+  h1 { font-size:44px; line-height:1.1; margin:0 0 12px; letter-spacing:-0.02em; } .lead { font-size:21px; color:var(--muted); margin:0 0 28px; }
+  img { max-width:100%; border-radius:12px; box-shadow:0 20px 60px rgba(0,0,0,.25); margin:18px 0 32px; }
+  .btn { display:inline-block; background:var(--accent); color:#fff; padding:14px 22px; border-radius:10px; text-decoration:none; font-weight:600; }
+  h2 { font-size:26px; margin:40px 0 8px; } .grid { display:grid; grid-template-columns:1fr 1fr; gap:18px; } .card { background:var(--card); border-radius:12px; padding:18px 20px; } .card h3 { margin:0 0 6px; font-size:18px; }
+  code { font:15px "Cascadia Mono",Consolas,ui-monospace,monospace; background:var(--card); padding:2px 6px; border-radius:6px; } .small { color:var(--muted); font-size:15px; }
+  @media (max-width:640px) { .grid { grid-template-columns:1fr; } h1 { font-size:34px; } }
+</style></head><body><main>
+<h1>Word, Excel and PowerPoint files.<br>Edited without being rewritten.</h1>
+<p class="lead">Every editor that opens a .docx reads it into its own idea of a document and writes that idea back out. Whatever it has no room for is quietly gone: the chart, the macro, the tracked changes, the header nobody looked at. Plain opens the file as the package of parts it really is, edits the parts you came to edit, and writes back every other part as the exact bytes it found.</p>
+<p><a class="btn" href="https://github.com/keithadler/plainwin/releases/latest">Download for Windows</a> &nbsp; <span class="small">Free. Open source. Windows 10 and 11, x64 and ARM64. One exe, no installer, no account, no administrator.</span></p>
+<img src="screenshots/promo/1-hero.png" alt="Plain for Windows showing a spreadsheet, with a rail listing the parts it kept untouched">
+<h2>The promise a test can check</h2>
+<p>Open a file, save it without changing anything, and you get the same file back byte for byte. That is not a claim about intentions, it is something a machine can verify, and it runs against real documents on every build: 39 of 39, including files stuffed with macros and pivot tables. Change one cell and only the parts holding that cell are rewritten. The status bar counts it every time you save: <em>10 parts read, 4 shown, 6 kept byte for byte</em>.</p>
+<h2>The fifth of the features that is most of the work</h2>
+<div class="grid">
+<div class="card"><h3>Spreadsheets</h3>Cells, text and formulas across every sheet. Insert or delete rows and columns and every formula in the workbook is rewritten so it still means what it meant. Totals recompute as you go, including lookups, conditional sums and dates, and it refuses anything it does not fully understand rather than guessing.</div>
+<div class="card"><h3>Documents</h3>Paragraphs, headings and lists, tables, comments and tracked changes you can accept or reject. Find and replace across the whole file. A word count that matches the one people are asked for.</div>
+<div class="card"><h3>Presentations</h3>The text on every slide, in the order it is read out. Speaker notes. Pictures you can look at and pull out. Shapes it cannot draw stay exactly where they are.</div>
+<div class="card"><h3>Everything else</h3>Made new from blank, printed, exported to PDF, read out as CSV, searched, and driven from a console twin for scripts and scheduled jobs. No ribbon, no tabs, one row of buttons.</div>
+</div>
+<img src="screenshots/promo/3-honest.png" alt="The preserved rail: every part Plain cannot draw, listed and left alone">
+<h2>Honest limits</h2>
+<p class="small">Plain does not draw charts, pictures in documents, SmartArt or complex layout, and it never pretends to. Those parts are listed in a rail down the side and written back untouched, so a file you edit in Plain still opens the way it did in Office. It will not lay out a page for print the way Word does, so its PDF is the text as Plain shows it, not a facsimile of Word's rendering. It has no macro engine: a macro survives the round trip, but Plain will not run it. It has never been tested against Microsoft Office itself, only against the file format and against LibreOffice as an independent reader.</p>
+<p class="small">No cloud, no telemetry, no account, and no network code at all, so there is no update check either. Also a console twin: <code>plain roundtrip report.xlsx</code>, <code>plain set book.xlsx Sheet1 B4 12500</code>. MIT licensed, built by Keith Adler. More from the same maker: <a href="https://keithadler.github.io">keithadler.github.io</a>.</p>
+</main></body></html>

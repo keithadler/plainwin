@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.1, 2026-09-08
+
+**Typing into a new document and saving no longer loses the words.** The editors hand their text over when they lose the caret, which is what keeps a long document from rebuilding on every keystroke. Nothing forced that handover before a save, and a file with a single box in it, which is exactly what a new blank document is, never loses the caret on its own. So you could make a new document, type a page, press Ctrl+S, and save an empty file. Every path that reads the file now takes the caret away first: save, save a copy, print, export to PDF, and the half-minute keeper that guards against a machine stopping.
+
+**The interactive test suite was measuring an empty window.** It waited for the window to appear and then began typing, but opening the file happens after the frame is on screen, and on a slow machine that is seconds later. Four checks were failing for that reason and several others were passing without proving anything. The harness now waits for the title to name the file before it touches the keyboard.
+
 ## 1.0.0, 2026-09-08
 
 First public version.

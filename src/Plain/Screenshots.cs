@@ -14,7 +14,7 @@ namespace Plain;
 public static class Screenshots
 {
     /// <summary>True while rendering, so a window does not also open whatever is on the command line.</summary>
-    public static bool Active { get; private set; }
+    public static bool Active { get; internal set; }
 
     /// <summary>Open the comments panel in the picture, so the rendered shots can show it.</summary>
     public static bool ShowNotes { get; set; }

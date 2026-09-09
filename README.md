@@ -1,8 +1,8 @@
 # Plain for Windows
 
-Opens Word, Excel and PowerPoint files, edits the basics, and never damages what it doesn't understand.
+**Office without the bloat.** Opens Word, Excel and PowerPoint files, does the fifth of the job that fills most of the day, and never damages the rest.
 
-**[Download Plain-for-Windows-1.0.0-x64.exe](https://github.com/keithadler/plainwin/releases/latest/download/Plain-for-Windows-1.0.0-x64.exe)** for ordinary Intel and AMD PCs, or **[Plain-for-Windows-1.0.0-arm64.exe](https://github.com/keithadler/plainwin/releases/latest/download/Plain-for-Windows-1.0.0-arm64.exe)** for Windows on ARM.
+**[Download Plain-for-Windows-1.0.1-x64.exe](https://github.com/keithadler/plainwin/releases/latest/download/Plain-for-Windows-1.0.1-x64.exe)** for ordinary Intel and AMD PCs, or **[Plain-for-Windows-1.0.1-arm64.exe](https://github.com/keithadler/plainwin/releases/latest/download/Plain-for-Windows-1.0.1-arm64.exe)** for Windows on ARM.
 
 Windows 10 or 11. One exe, no installer, no runtime to install, no administrator. Put it anywhere and double-click. Windows will warn you about an unknown publisher: choose **More info**, then **Run anyway**. It is not signed, because a signing certificate costs money this does not make.
 
@@ -27,6 +27,20 @@ plain roundtrip *.docx *.xlsx *.pptx
 ```
 
 Change one cell and only the parts holding that cell are rewritten. The status bar counts it on every save: *10 parts read, 4 shown, 6 kept byte for byte*.
+
+## The 80/20 of it
+
+Word, Excel and PowerPoint are enormous, and almost none of that is what almost anyone does. The real day is typing in cells, fixing a total, changing a paragraph, correcting a slide, replacing a name throughout, reading a comment someone left, printing a PDF. That is the fifth of the features that covers the great majority of the work, and it is all Plain has: one row of buttons, no ribbon, no tabs to hunt through, no sign-in, no first-run tour.
+
+The other four fifths are not dropped. They are kept. Plain is not a smaller Office that throws away what it cannot draw, it is a smaller Office that carries what it cannot draw through untouched, so the parts of the file you never use survive the parts you do.
+
+| | Office | Plain |
+|---|---|---|
+| Download | an installer and about 4 GB on disk | one exe, under 60 MB |
+| Install | installer, sign-in, first-run tour | put it anywhere and double-click |
+| Account | Microsoft account | none |
+| Network | always | no network code at all |
+| Charts, macros, pivot tables | edits them | keeps them byte for byte |
 
 ## What it does
 

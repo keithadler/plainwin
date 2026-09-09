@@ -25,10 +25,10 @@
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
 
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Version>1.0.0</Version>
-    <AssemblyVersion>1.0.0.0</AssemblyVersion>
-    <FileVersion>1.0.0.0</FileVersion>
-    <InformationalVersion>1.0.0</InformationalVersion>
+    <Version>1.0.1</Version>
+    <AssemblyVersion>1.0.1.0</AssemblyVersion>
+    <FileVersion>1.0.1.0</FileVersion>
+    <InformationalVersion>1.0.1</InformationalVersion>
     <Product>Plain for Windows</Product>
     <Company>Keith Adler</Company>
     <Copyright>Copyright (c) 2026 Keith Adler. MIT licensed.</Copyright>
@@ -39,6 +39,10 @@
     <ProjectReference Include="../Plain.Core/Plain.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup Condition="'$(CliBuild)' != 'true'">
+    <Resource Include="../../icon/plain-256.png" Link="Assets/plain-256.png" Condition="Exists('../../icon/plain-256.png')" />
+  </ItemGroup>
+
   <!-- The console twin needs none of the window's files. -->
   <ItemGroup Condition="'$(CliBuild)' == 'true'">
     <Compile Remove="MainWindow.xaml.cs" />
@@ -47,6 +51,7 @@
     <Compile Remove="DocView.cs" />
     <Compile Remove="DeckView.cs" />
     <Compile Remove="Screenshots.cs" />
+    <Compile Remove="Promo.cs" />
     <Compile Remove="Settings.cs" />
     <Compile Remove="Printing.cs" />
     <Compile Remove="Recovery.cs" />

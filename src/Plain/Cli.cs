@@ -13,7 +13,7 @@ namespace Plain;
 /// </summary>
 public static class Cli
 {
-    public const string Version = "1.0.0";
+    public const string Version = "1.0.1";
 
     private static readonly string[] Verbs =
         { "info", "parts", "text", "cells", "get", "set", "new", "replace", "row", "column", "props", "pdf", "csv", "import", "count", "images", "apply", "changes", "comments", "roundtrip", "selftest", "version", "help", "--help", "-h", "--version" };

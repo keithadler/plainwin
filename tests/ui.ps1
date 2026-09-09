@@ -40,6 +40,17 @@ function Window($process) {
   return $null
 }
 
+# The window appears before the file is in it: opening is done when the Loaded handler runs, and on a slow
+# machine that is seconds after the frame is on screen. Until the title names the file nothing is open, so
+# keystrokes land nowhere and every check after them is measuring an empty window.
+function Opened($window, $name) {
+  for ($i = 0; $i -lt 60; $i++) {
+    if ($window.Current.Name -like "*$name*") { return $true }
+    Start-Sleep -Milliseconds 500
+  }
+  return $false
+}
+
 function ById($window, $id) {
   $cond = New-Object System.Windows.Automation.PropertyCondition(
     [System.Windows.Automation.AutomationElement]::AutomationIdProperty, $id)
@@ -97,6 +108,7 @@ Start-Sleep 1
 $p = Start-Process $exe -ArgumentList "`"$work`"" -PassThru
 $w = Window $p
 Note ($null -ne $w) "the window opens"
+Note ($w -and (Opened $w "ui-work.xlsx")) "and has the file in it before anything is typed"
 if (-not $w) { $lines | Set-Content $log; exit 1 }
 Note (Front $p) "and comes to the front, so it can be typed into" 
 
@@ -172,6 +184,7 @@ Start-Sleep 1
 Copy-Item (Join-Path $Root "fixtures\doc.docx") $doc -Force
 $p2 = Start-Process $exe -ArgumentList "`"$doc`"" -PassThru
 $w2 = Window $p2
+Note ($w2 -and (Opened $w2 "ui-work.docx")) "the document is open before anything is typed"
 Note ($null -ne $w2) "a document opens too"
 if ($w2) {
   $words = (Texts $w2 | Where-Object { $_ -match "^\d[\d,]* words" })
@@ -197,6 +210,7 @@ $review = Join-Path $Root "ui-review.docx"
 Copy-Item (Join-Path $Root "fixtures\review.docx") $review -Force
 $p3 = Start-Process $exe -ArgumentList "`"$review`"" -PassThru
 $w3 = Window $p3
+Note ($w3 -and (Opened $w3 "ui-review.docx")) "the marked up document is open before anything is typed"
 Note ($null -ne $w3) "a document with mark-up opens"
 if ($w3) {
   $before = (& $cli changes $review | Measure-Object -Line).Lines
@@ -222,6 +236,44 @@ if ($w3) {
     }
   }
   Stop-Process -Id $p3.Id -Force -ErrorAction SilentlyContinue
+}
+
+
+# ---------- a brand new blank document: type, save, and the words must be in the file ----------
+# The editors hand their text over when they lose the caret. A new document has exactly one box, so the caret
+# never leaves it on its own, and before this was fixed you could type a page, press Ctrl+S, and save nothing.
+
+$blank = Join-Path $Root "ui-blank.docx"
+Remove-Item $blank -Force -ErrorAction SilentlyContinue
+& $cli new $blank | Out-Null
+Note (Test-Path $blank) "the console twin makes a blank document"
+
+if (Test-Path $blank) {
+  Stop-Process -Name "Plain for Windows" -Force -ErrorAction SilentlyContinue
+  Start-Sleep 1
+  $p4 = Start-Process $exe -ArgumentList "`"$blank`"" -PassThru
+  $w4 = Window $p4
+  Note ($w4 -and (Opened $w4 "ui-blank.docx")) "the blank document is open before anything is typed"
+  Note ($null -ne $w4) "a blank document opens"
+  if ($w4) {
+    Note (Front $p4) "and comes to the front"
+    # Click into the one paragraph there is, the way a person would, then type and save without leaving it.
+    $box = $null
+    $cond = New-Object System.Windows.Automation.PropertyCondition(
+      [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+      [System.Windows.Automation.ControlType]::Edit)
+    $edits = $w4.FindAll([System.Windows.Automation.TreeScope]::Descendants, $cond)
+    foreach ($e in $edits) { if ($e.Current.IsKeyboardFocusable -and -not $box) { $box = $e } }
+    if ($box) { $box.SetFocus() }
+    Start-Sleep -Milliseconds 500
+    [System.Windows.Forms.SendKeys]::SendWait("The roof survey is booked for September.")
+    Start-Sleep -Milliseconds 600
+    [System.Windows.Forms.SendKeys]::SendWait("^s")
+    Start-Sleep 2
+    $typed = (& $cli text $blank | Out-String)
+    Note ($typed -match "roof survey is booked") "typing into a new document and Ctrl+S writes it to the file" "got '$typed'"
+    Stop-Process -Id $p4.Id -Force -ErrorAction SilentlyContinue
+  }
 }
 
 if ($fail -eq 0) { $lines += "ui: all passed" } else { $lines += "ui: FAILURES" }
