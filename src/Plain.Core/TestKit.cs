@@ -58,6 +58,8 @@ public static class SelfTest
         ("page", PageSuite.Run),
         ("slides", SlidesSuite.Run),
         ("table", TableSuite.Run),
+        ("hidden", HiddenSuite.Run),
+        ("folder", FolderSuite.Run),
         ("updates", UpdatesSuite.Run),
         ("corpus", CorpusSuite.Run),
     };

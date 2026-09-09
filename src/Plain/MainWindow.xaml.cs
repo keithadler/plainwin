@@ -413,7 +413,9 @@ public partial class MainWindow : Window
             case Key.Y: OnRedo(sender, e); e.Handled = true; break;
             case Key.G: GoToCell(); e.Handled = true; break;
             case Key.W: CloseActive(); e.Handled = true; break;
-            case Key.F: ShowFind(); e.Handled = true; break;
+            case Key.F:
+                if ((Keyboard.Modifiers & ModifierKeys.Shift) != 0) OnFindInFolder(sender, e); else ShowFind();
+                e.Handled = true; break;
             case Key.H: ShowFind(replacing: true); e.Handled = true; break;
             case Key.N: MakeNew(FileKind.Spreadsheet); e.Handled = true; break;
             case Key.P: OnPrint(sender, e); e.Handled = true; break;
@@ -614,6 +616,154 @@ public partial class MainWindow : Window
         ok.Click += (_, _) => { window.DialogResult = true; };
         window.Loaded += (_, _) => { box.Focus(); box.SelectAll(); };
         return window.ShowDialog() == true && box.Text.Trim().Length > 0 ? box.Text.Trim() : null;
+    }
+
+    /// <summary>
+    /// Which files in a folder hold the words. This only ever reads: it says which files and where, and then you
+    /// open the ones that matter and change them yourself, one at a time, watching what happens. A tool that
+    /// offered to change forty files at once would be asking for a great deal of trust for very little work saved.
+    /// </summary>
+    private void OnFindInFolder(object sender, RoutedEventArgs e)
+    {
+        var term = Prompt("Find in a folder", "Which words are you looking for?", "");
+        if (term is null) return;
+
+        var picker = new Microsoft.Win32.OpenFolderDialog { Title = "Which folder?" };
+        if (picker.ShowDialog(this) != true) return;
+
+        Say($"Looking through {picker.FolderName}…");
+        var report = Core.Folder.Search(picker.FolderName, term, deep: true);
+
+        var stack = new StackPanel { Margin = new Thickness(18) };
+        stack.Children.Add(new TextBlock
+        {
+            Text = report.Hits.Count == 0
+                ? $"Nothing in those {report.Looked} files holds \"{term}\"."
+                : $"{report.Hits.Count} of {report.Looked} files hold \"{term}\". Nothing has been changed.",
+            TextWrapping = TextWrapping.Wrap, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 12),
+        });
+
+        foreach (var hit in report.Hits)
+        {
+            var open = new Button
+            {
+                Content = $"{Path.GetFileName(hit.Path)}  ({hit.Count})",
+                HorizontalAlignment = HorizontalAlignment.Left,
+                Style = (Style)FindResource("Flat"),
+                Tag = hit.Path,
+            };
+            open.Click += (b, _) =>
+            {
+                if (((Button)b).Tag is string p) OpenPath(p);
+                Refresh();
+            };
+            stack.Children.Add(open);
+            foreach (var place in hit.Places)
+                stack.Children.Add(new TextBlock
+                {
+                    Text = "    " + place, TextWrapping = TextWrapping.Wrap, FontSize = 11.5,
+                    Foreground = App.B("Ink2"), Margin = new Thickness(0, 0, 0, 2),
+                });
+        }
+
+        if (report.Troubles.Count > 0)
+            stack.Children.Add(new TextBlock
+            {
+                Text = $"{report.Troubles.Count} could not be read: "
+                     + string.Join(", ", report.Troubles.Take(4).Select(t => Path.GetFileName(t.Path))),
+                TextWrapping = TextWrapping.Wrap, FontSize = 11.5, Foreground = App.B("Ink3"),
+                Margin = new Thickness(0, 12, 0, 0),
+            });
+
+        var window = new Window
+        {
+            Title = "Find in a folder", Content = new ScrollViewer { Content = stack }, Owner = this,
+            Width = 620, Height = 480, WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Background = App.B("Chrome"), Foreground = App.B("Ink"),
+        };
+        window.ShowDialog();
+        Say(report.Hits.Count == 0 ? "Nothing found." : $"{report.Hits.Count} files hold it. Nothing was changed.");
+    }
+
+    /// <summary>
+    /// What travels with this file that you probably did not mean to send: who wrote it, comments, tracked
+    /// changes, hidden sheets and rows, speaker notes. It lists what is there and takes out only what is ticked.
+    /// It never claims to have made a file safe, because it can only find what it knows to look for.
+    /// </summary>
+    private void OnBeforeYouSend(object sender, RoutedEventArgs e)
+    {
+        if (_active is null) return;
+        CommitPendingEdit();
+
+        var found = Core.Hidden.Find(_active.File);
+        if (found.Count == 0)
+        {
+            MessageBox.Show(this,
+                "Plain found nothing in this file that you would not expect to send: no names in the properties, "
+                + "no comments, no tracked changes, nothing hidden.\n\n"
+                + "It can only find what it knows to look for, so this is not a promise that the file holds nothing.",
+                "Before you send it", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var boxes = new List<(CheckBox Box, Core.Hidden.Finding Finding)>();
+        var stack = new StackPanel { Margin = new Thickness(18) };
+        stack.Children.Add(new TextBlock
+        {
+            Text = "These travel with the file. Tick what you want taken out.",
+            TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 12),
+        });
+
+        foreach (var finding in found)
+        {
+            var box = new CheckBox
+            {
+                Content = $"{finding.Kind}  —  {finding.What}",
+                IsEnabled = finding.CanRemove,
+                Margin = new Thickness(0, 0, 0, 6),
+            };
+            if (!finding.CanRemove)
+            {
+                box.Content = $"{finding.Kind}  —  {finding.What}   (Plain leaves this alone)";
+                box.ToolTip = "Hidden sheets and rows are somebody's working, and speaker notes live in parts of "
+                            + "their own. Plain lists them so you know, and does not tear them out.";
+            }
+            boxes.Add((box, finding));
+            stack.Children.Add(box);
+        }
+
+        stack.Children.Add(new TextBlock
+        {
+            Text = "Plain can only find what it knows to look for. This is not a promise that nothing else is in there.",
+            TextWrapping = TextWrapping.Wrap, FontSize = 11.5, Margin = new Thickness(0, 8, 0, 0),
+            Foreground = App.B("Ink3"),
+        });
+
+        var ok = new Button { Content = "Take them out", IsDefault = true, MinWidth = 110, Margin = new Thickness(0, 16, 8, 0) };
+        var cancel = new Button { Content = "Leave it", IsCancel = true, MinWidth = 90, Margin = new Thickness(0, 16, 0, 0) };
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+        buttons.Children.Add(ok); buttons.Children.Add(cancel);
+        stack.Children.Add(buttons);
+
+        var window = new Window
+        {
+            Title = "Before you send it", Content = new ScrollViewer { Content = stack }, Owner = this,
+            SizeToContent = SizeToContent.Height, Width = 520, MaxHeight = 560,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner, ResizeMode = ResizeMode.NoResize,
+            Background = App.B("Chrome"), Foreground = App.B("Ink"),
+        };
+        ok.Click += (_, _) => { window.DialogResult = true; };
+        if (window.ShowDialog() != true) return;
+
+        var wanted = boxes.Where(b => b.Box.IsChecked == true).Select(b => b.Finding.Kind).ToList();
+        if (wanted.Count == 0) { Say("Nothing was ticked, so nothing was taken out."); return; }
+
+        var did = Core.Hidden.Remove(_active.File, wanted);
+        if (did.Count == 0) { Say("There was nothing to take out."); return; }
+
+        _active.Dirty = true;
+        Say(string.Join(" ", did) + " Save the file to write it back.");
+        Refresh();
     }
 
     // ---------- the shape of a deck, and of a table ----------

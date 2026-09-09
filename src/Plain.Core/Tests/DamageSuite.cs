@@ -54,6 +54,30 @@ public static class DamageSuite
         s.Check($"some damaged files still opened ({opened} of {opened + refused + leaked})", opened > 0);
         s.Check($"some damaged files were refused ({refused} of {opened + refused + leaked})", refused > 0);
         s.Equal($"no damaged file threw something unexpected ({firstLeak})", 0, leaked);
+        // ---- files that are not damaged, but are not this kind of file either ----
+        // Saying "no ZIP end record found" about a password-protected file sends someone looking for damage that
+        // is not there. These check the message is about what the file actually is.
+        {
+            var ole = new byte[] { 0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1 };
+
+            var oldFile = new byte[2048];
+            Array.Copy(ole, oldFile, ole.Length);
+            string oldSaid = "";
+            try { OpcPackage.Read(oldFile); } catch (Exception ex) { oldSaid = ex.Message; }
+            s.Check("an older .doc is named as an older file", oldSaid.Contains("older Office file"));
+            s.Check("and it says what to do about it", oldSaid.Contains(".docx"));
+
+            var locked = new byte[4096];
+            Array.Copy(ole, locked, ole.Length);
+            var name = System.Text.Encoding.Unicode.GetBytes("EncryptedPackage");
+            Array.Copy(name, 0, locked, 600, name.Length);
+            string lockedSaid = "";
+            try { OpcPackage.Read(locked); } catch (Exception ex) { lockedSaid = ex.Message; }
+            s.Check("a file with a password says so", lockedSaid.Contains("password"));
+            s.Check("and does not pretend it can take it off", lockedSaid.Contains("cannot remove"));
+            s.Check("and says what would work instead", lockedSaid.Contains("save a copy"));
+        }
+
         return s;
     }
 

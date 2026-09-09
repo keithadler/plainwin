@@ -1,5 +1,31 @@
 # Changelog
 
+## 1.2.0, 2026-09-09
+
+**Sort was only half of it: rows can now be filtered too.** Show only the rows whose cell in a column contains what you type. Nothing is written to the file; it is a way of looking at the sheet, hiding a row never deletes anything, and clearing it puts everything back.
+
+**What the selection adds up to, in the status bar.** How many numbers, the sum, the average, the lowest and the highest. This is the question a spreadsheet is usually opened to answer, and answering it there means not typing a formula into an empty cell and deleting it afterwards.
+
+**Redo.** Ctrl+Y and Ctrl+Shift+Z. Every step now carries how to undo it and, where it can be worked out, how to do it again. A step that cannot say makes everything after it unrepeatable, so the pile waiting to be redone is thrown away rather than left to put things back in the wrong order.
+
+**Getting about a large sheet.** Ctrl with an arrow goes to the end of the run of filled cells, or across a gap to the next thing there is. Ctrl+Home and Ctrl+End go to the corners. Ctrl+G asks which cell and goes there.
+
+**Before you send it.** One list of what travels with a file that you may not have meant to send: who wrote it, comments, tracked changes, hidden sheets and rows, speaker notes. It takes out only what you tick, it leaves alone the things that are somebody's working rather than an accident, and it never claims to have made a file safe, because it can only find what it knows to look for.
+
+**Slides can be added, taken out and moved.** Moving one only reorders a list. Removing one takes it out of the running order and leaves its part in the file unused, because deleting a part something still points at is how a deck gets broken.
+
+**Rows can be added to and taken out of a table in a document.** A new row is a copy of a neighbour with the words removed, so it keeps the borders, shading and widths of the table it joins.
+
+**Joined cells are drawn as one cell**, rather than as several empty ones with lines through them, and clicking any part of a block selects the corner that holds the value.
+
+**Find in a folder.** Which Office files in a folder hold the words, and where. It only ever reads: you open the ones that matter and change them yourself, one at a time.
+
+**A file with a password on it says so.** It used to report "no ZIP end record found", which sends someone looking for damage that is not there. An older .doc, .xls or .ppt is now named as an older file too, with what to do about it.
+
+**Under all that:** the package can add a part, which a deck needs in order to gain a slide. It is deliberately separate from writing an existing part so that adding one can never be an accident, and the checks prove that afterwards every part that was already there still comes back byte for byte.
+
+**Console twin.** `plain hidden`, `plain find`, `plain slide`, `plain tablerow`.
+
 ## 1.1.0, 2026-09-09
 
 **Sort rows.** By any column, up or down, numbers by value rather than as text and blanks always last. Plain refuses whenever sorting would make a formula mean something else: one inside the block, one reading only part of it, or a lookup whose answer depends on the order. A total underneath a table reads every row of it, and shuffling rows does not change a total, so that case goes ahead.

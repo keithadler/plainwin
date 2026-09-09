@@ -84,6 +84,20 @@ public sealed class OpcPackage
     {
         if (raw.Length < 22) throw new PackageException("Not a Word, Excel or PowerPoint file: too small to be a package.");
 
+        // A file with a password on it is not a package at all: it is an older Microsoft container holding one
+        // encrypted lump. Saying "no ZIP end record found" about that would send someone looking for damage that
+        // is not there, so say what it actually is.
+        if (LooksEncrypted(raw))
+            throw new PackageException(
+                "This file has a password on it. Plain cannot open it, and cannot remove the password. "
+                + "Open it in Word, Excel or PowerPoint, save a copy without a password, and Plain will open that.");
+
+        // The old formats, which are a different thing entirely rather than a damaged new one.
+        if (raw.Length > 8 && raw[0] == 0xD0 && raw[1] == 0xCF)
+            throw new PackageException(
+                "This is an older Office file (.doc, .xls or .ppt), not the newer kind Plain reads. "
+                + "Open it and save it as .docx, .xlsx or .pptx, and Plain will open that.");
+
         int eocd = FindEocd(raw);
         if (eocd < 0) throw new PackageException("Not a Word, Excel or PowerPoint file: no ZIP end record found.");
 
@@ -209,6 +223,24 @@ public sealed class OpcPackage
             q += 4 + size;
         }
         throw new PackageException("A part claims ZIP64 sizes but carries no ZIP64 record.");
+    }
+
+    /// <summary>
+    /// An encrypted Office file is an OLE2 compound file whose contents include a stream called EncryptedPackage.
+    /// The signature alone would also match a plain old .doc, so the name is what tells them apart.
+    /// </summary>
+    private static bool LooksEncrypted(byte[] raw)
+    {
+        if (raw.Length < 8) return false;
+        ReadOnlySpan<byte> ole = new byte[] { 0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1 };
+        if (!raw.AsSpan(0, 8).SequenceEqual(ole)) return false;
+
+        // The stream name is stored as UTF-16, so look for it that way, in the directory near the start.
+        ReadOnlySpan<byte> name = Encoding.Unicode.GetBytes("EncryptedPackage");
+        int limit = Math.Min(raw.Length, 1 << 20);
+        for (int i = 0; i + name.Length <= limit; i++)
+            if (raw.AsSpan(i, name.Length).SequenceEqual(name)) return true;
+        return false;
     }
 
     private static int FindEocd(byte[] raw)

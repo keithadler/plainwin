@@ -574,6 +574,18 @@ public sealed class Sheet
         return null;
     }
 
+    /// <summary>
+    /// How many rows this sheet has been told to hide. Hidden rows are somebody's working, not damage, but they
+    /// travel with the file, and someone about to send it out should know they are there.
+    /// </summary>
+    public int HiddenRowCount()
+    {
+        int n = 0;
+        foreach (var row in Data.Elements(D.Sheet + "row"))
+            if ((string?)row.Attribute("hidden") is "1" or "true") n++;
+        return n;
+    }
+
     /// <summary>How wide this column has to be for its longest value to fit, in the same character units.</summary>
     public double WidestChars(int column, int limitRows = 2000)
     {

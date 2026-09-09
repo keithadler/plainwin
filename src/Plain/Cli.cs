@@ -13,10 +13,10 @@ namespace Plain;
 /// </summary>
 public static class Cli
 {
-    public const string Version = "1.1.0";
+    public const string Version = "1.2.0";
 
     private static readonly string[] Verbs =
-        { "info", "parts", "text", "cells", "get", "set", "new", "replace", "row", "column", "width", "freeze", "sort", "explorer", "slide", "tablerow", "props", "pdf", "csv", "import", "count", "images", "apply", "changes", "comments", "roundtrip", "selftest", "version", "help", "--help", "-h", "--version" };
+        { "info", "parts", "text", "cells", "get", "set", "new", "replace", "row", "column", "width", "freeze", "sort", "explorer", "slide", "tablerow", "hidden", "find", "props", "pdf", "csv", "import", "count", "images", "apply", "changes", "comments", "roundtrip", "selftest", "version", "help", "--help", "-h", "--version" };
 
     public static bool IsVerb(string arg) => Verbs.Contains(arg, StringComparer.OrdinalIgnoreCase);
 
@@ -42,6 +42,8 @@ public static class Cli
           plain explorer on|off|status     "Edit in Plain" on the right-click menu, for your account only
           plain slide <file> add|remove|move <n> [to]   add, take out or move a slide
           plain tablerow <file> add|remove <table> <row>  a row in a table in a document
+          plain hidden <file> [--remove k,k]  what travels with the file that you may not want to send
+          plain find <folder> <words> [--deep]  which Office files in a folder hold those words
 
         For pdf: --paper A4|Letter|Legal|A3|A5  --landscape  --margin <mm>
                  --header "<text>"  --footer "<text>"   with {page} and {pages}
@@ -321,6 +323,61 @@ public static class Cli
                     File.WriteAllBytes(file.Path, file.Package.ToBytes());
                     o.WriteLine(((TableRows.Done)outcome).What);
                     return 0;
+                }
+
+                case "hidden":
+                {
+                    if (rest.Count < 1) { err.WriteLine("hidden <file> [--remove comments,tracked,names]"); return 64; }
+                    var file = PlainFile.Open(rest[0]);
+                    var found = Hidden.Find(file);
+                    if (found.Count == 0)
+                    {
+                        o.WriteLine("Nothing found that you would not expect to send.");
+                        o.WriteLine("Plain can only find what it knows to look for, so this is not a promise.");
+                        return 0;
+                    }
+
+                    foreach (var f in found)
+                        o.WriteLine($"{f.Kind,-20} {f.What}" + (f.CanRemove ? "" : "   (Plain leaves this alone)"));
+
+                    var wanted = Value(args, "--remove");
+                    if (wanted is null) { o.WriteLine(); o.WriteLine("Use --remove names,comments,tracked to take them out."); return 1; }
+
+                    var kinds = new List<string>();
+                    foreach (var word in wanted.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                        kinds.Add(word.ToLowerInvariant() switch
+                        {
+                            "names" or "people" or "properties" => Hidden.People,
+                            "comments" => Hidden.Comments,
+                            "tracked" or "changes" => Hidden.Tracked,
+                            _ => word,
+                        });
+
+                    var did = Hidden.Remove(file, kinds);
+                    if (did.Count == 0) { err.WriteLine("Nothing was taken out. The kinds are: names, comments, tracked."); return 2; }
+                    file.Flush();
+                    File.WriteAllBytes(file.Path, file.Package.ToBytes());
+                    o.WriteLine();
+                    foreach (var line in did) o.WriteLine(line);
+                    return 0;
+                }
+
+                case "find":
+                {
+                    if (rest.Count < 2) { err.WriteLine("find <folder> <words> [--deep]"); return 64; }
+                    var report = Folder.Search(rest[0], string.Join(' ', rest.Skip(1)), Flag(args, "--deep"));
+
+                    foreach (var hit in report.Hits)
+                    {
+                        o.WriteLine($"{hit.Path}  ({hit.Count})");
+                        foreach (var place in hit.Places) o.WriteLine("    " + place);
+                    }
+                    foreach (var trouble in report.Troubles)
+                        err.WriteLine($"{trouble.Path}: {trouble.Why}");
+
+                    o.WriteLine();
+                    o.WriteLine($"{report.Hits.Count} of {report.Looked} files hold it. Nothing was changed.");
+                    return report.Hits.Count > 0 ? 0 : 1;
                 }
 
                 case "explorer":
