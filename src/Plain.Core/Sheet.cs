@@ -218,6 +218,26 @@ public sealed class Workbook
         return false;
     }
 
+    /// <summary>
+    /// Put a row or column in, or take one out, on one sheet, and make every formula in the workbook still mean what
+    /// it meant. A formula that pointed only at what was deleted becomes #REF!, the way Excel does it, because a
+    /// visible error is better than a number that quietly went wrong.
+    /// </summary>
+    public int Apply(Sheet sheet, GridEdit edit, int at)
+    {
+        if (at < 1) throw new ArgumentOutOfRangeException(nameof(at), "Rows and columns are numbered from one.");
+        int limit = edit is GridEdit.InsertRow or GridEdit.DeleteRow ? 1048576 : 16384;
+        if (at > limit) throw new ArgumentOutOfRangeException(nameof(at), "That is past the end of the sheet.");
+
+        sheet.ShiftCells(edit, at);
+        int adjusted = 0;
+        foreach (var other in _sheets)
+            adjusted += other.AdjustFormulas(edit, at, sheet.Name, ownSheet: other == sheet);
+
+        RequestFullRecalculation();
+        return adjusted;
+    }
+
     /// <summary>Write every part Plain changed back into the package. Nothing else is touched.</summary>
     public void Flush()
     {
@@ -514,6 +534,100 @@ public sealed class Sheet
             }
         if (any) _dirty = true;
         return any;
+    }
+
+    /// <summary>
+    /// Move the cells for an inserted or deleted row or column. Rows and cells are renamed rather than rebuilt, so a
+    /// cell keeps its style, its formula and everything else about it; only where it sits changes.
+    /// </summary>
+    internal void ShiftCells(GridEdit edit, int at)
+    {
+        var data = Data;
+
+        if (edit == GridEdit.DeleteRow)
+            foreach (var row in data.Elements(D.Sheet + "row").Where(r => Xml.Int(r.Attribute("r"), 0) == at).ToList())
+                row.Remove();
+
+        foreach (var row in data.Elements(D.Sheet + "row").ToList())
+        {
+            int number = Xml.Int(row.Attribute("r"), 0);
+            if (number == 0) continue;
+
+            if (edit == GridEdit.DeleteColumn)
+                foreach (var cell in row.Elements(D.Sheet + "c")
+                             .Where(c => CellRef.TryParse((string?)c.Attribute("r") ?? "", out var r) && r.Column == at).ToList())
+                    cell.Remove();
+
+            int moved = edit switch
+            {
+                GridEdit.InsertRow => number >= at ? number + 1 : number,
+                GridEdit.DeleteRow => number > at ? number - 1 : number,
+                _ => number,
+            };
+            if (moved != number) row.SetAttributeValue("r", moved);
+
+            foreach (var cell in row.Elements(D.Sheet + "c"))
+            {
+                if (!CellRef.TryParse((string?)cell.Attribute("r") ?? "", out var reference)) continue;
+                var landed = Grid.Move(reference, edit, at);
+                if (landed is { } to && to != reference) cell.SetAttributeValue("r", to.ToString());
+            }
+
+            // The spans hint and the sheet dimension describe a shape that has just changed; Excel works both out
+            // again, and a stale one is worse than none.
+            row.Attribute("spans")?.Remove();
+        }
+
+        if (edit is GridEdit.InsertColumn or GridEdit.DeleteColumn) ShiftColumnWidths(edit, at);
+        _doc?.Root?.Element(D.Sheet + "dimension")?.Remove();
+
+        _rowIndex = null;
+        _extent = null;
+        _widths = null;
+        _dirty = true;
+    }
+
+    private void ShiftColumnWidths(GridEdit edit, int at)
+    {
+        var cols = _doc?.Root?.Element(D.Sheet + "cols");
+        if (cols is null) return;
+        foreach (var col in cols.Elements(D.Sheet + "col").ToList())
+        {
+            int min = Xml.Int(col.Attribute("min"), 0), max = Xml.Int(col.Attribute("max"), 0);
+            if (min == 0 || max == 0) continue;
+            if (edit == GridEdit.InsertColumn)
+            {
+                if (min >= at) col.SetAttributeValue("min", min + 1);
+                if (max >= at) col.SetAttributeValue("max", Math.Min(16384, max + 1));
+            }
+            else
+            {
+                if (min > at) col.SetAttributeValue("min", min - 1);
+                if (max >= at) col.SetAttributeValue("max", max - 1);
+                if (Xml.Int(col.Attribute("max"), 0) < Xml.Int(col.Attribute("min"), 1)) col.Remove();
+            }
+        }
+        if (!cols.Elements().Any()) cols.Remove();
+    }
+
+    /// <summary>Rewrite every formula on this sheet so it still means what it meant after a row or column moved.</summary>
+    internal int AdjustFormulas(GridEdit edit, int at, string targetSheet, bool ownSheet)
+    {
+        int changed = 0;
+        foreach (var row in Data.Elements(D.Sheet + "row"))
+            foreach (var cell in row.Elements(D.Sheet + "c"))
+            {
+                var f = cell.Element(D.Sheet + "f");
+                if (f is null || f.Value.Length == 0) continue;
+                var adjusted = Grid.Adjust(f.Value, edit, at, targetSheet, ownSheet);
+                if (adjusted == f.Value) continue;
+                f.Value = adjusted;
+                cell.Elements(D.Sheet + "v").Remove();   // whatever it worked out to is no longer what it means
+                if ((string?)cell.Attribute("t") == "str") cell.Attribute("t")!.Remove();
+                changed++;
+            }
+        if (changed > 0) _dirty = true;
+        return changed;
     }
 
     internal void Flush()

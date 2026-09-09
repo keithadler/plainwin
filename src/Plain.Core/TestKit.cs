@@ -43,6 +43,8 @@ public static class SelfTest
         ("opc", OpcSuite.Run),
         ("refs", RefsSuite.Run),
         ("dialect", DialectSuite.Run),
+        ("replace", ReplaceSuite.Run),
+        ("grid", GridSuite.Run),
         ("sheet", SheetSuite.Run),
         ("doc", DocSuite.Run),
         ("deck", DeckSuite.Run),

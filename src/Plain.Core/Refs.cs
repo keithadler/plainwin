@@ -24,9 +24,72 @@ public static class Refs
 {
     private const int MaxColumn = 16384, MaxRow = 1048576;
 
-    public static IReadOnlyList<RefRange> Parse(string formula)
+    /// <summary>
+    /// One reference exactly as it was written: where it sits in the formula, what it points at, and which parts were
+    /// pinned with a dollar. Keeping the dollars matters because rewriting "$B$4" as "B5" would quietly unpin it.
+    /// </summary>
+    public readonly record struct Token(int Start, int Length, RefRange Range, Shape Kind,
+                                        bool Column1Fixed, bool Row1Fixed, bool Column2Fixed, bool Row2Fixed, bool IsRange);
+
+    public enum Shape { Cell, WholeColumn, WholeRow }
+
+    public static IReadOnlyList<RefRange> Parse(string formula) => Scan(formula).Select(t => t.Range).ToList();
+
+    /// <summary>
+    /// Rewrite the references in a formula. The map is given each reference and returns the text to put in its place,
+    /// or null to leave it exactly as it was written. Everything between references is copied through untouched, so a
+    /// formula comes back the way its author wrote it apart from the references that had to move.
+    /// </summary>
+    public static string Rewrite(string formula, Func<Token, string?> map)
     {
-        var found = new List<RefRange>();
+        var tokens = Scan(formula);
+        if (tokens.Count == 0) return formula;
+
+        bool equals = formula.StartsWith('=');
+        string body = equals ? formula[1..] : formula;
+
+        var built = new System.Text.StringBuilder(body.Length + 16);
+        int at = 0;
+        foreach (var token in tokens)
+        {
+            var replacement = map(token);
+            if (replacement is null) continue;
+            built.Append(body, at, token.Start - at).Append(replacement);
+            at = token.Start + token.Length;
+        }
+        if (at == 0) return formula;
+        built.Append(body, at, body.Length - at);
+        return (equals ? "=" : "") + built;
+    }
+
+    /// <summary>How a reference is written out again, with the dollars it came with.</summary>
+    public static string Write(RefRange range, Shape kind, bool column1Fixed, bool row1Fixed,
+                               bool column2Fixed, bool row2Fixed, bool isRange)
+    {
+        string Corner(int column, int row, bool columnFixed, bool rowFixed) => kind switch
+        {
+            Shape.WholeColumn => (columnFixed ? "$" : "") + CellRef.ColumnName(column),
+            Shape.WholeRow => (rowFixed ? "$" : "") + row.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            _ => (columnFixed ? "$" : "") + CellRef.ColumnName(column) +
+                 (rowFixed ? "$" : "") + row.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        };
+
+        string sheet = range.Sheet is null ? "" : QuoteSheet(range.Sheet) + "!";
+        string first = Corner(range.ColumnMin, range.RowMin, column1Fixed, row1Fixed);
+        return isRange
+            ? sheet + first + ":" + Corner(range.ColumnMax, range.RowMax, column2Fixed, row2Fixed)
+            : sheet + first;
+    }
+
+    /// <summary>A sheet name needs quoting unless it is a plain word.</summary>
+    public static string QuoteSheet(string name) =>
+        name.All(c => char.IsAsciiLetterOrDigit(c) || c == '_') && name.Length > 0 && !char.IsAsciiDigit(name[0])
+            ? name
+            : "'" + name.Replace("'", "''") + "'";
+
+    private static IReadOnlyList<Token> Scan(string formula)
+    {
+        var found = new List<Token>();
         if (string.IsNullOrEmpty(formula)) return found;
         if (formula[0] == '=') formula = formula[1..];
 
@@ -64,7 +127,11 @@ public static class Refs
                 if (j < formula.Length && formula[j] == '!') { sheet = formula[i..j]; i = j + 1; }
             }
 
-            if (TryRange(formula, ref i, sheet, out var range)) { found.Add(range); continue; }
+            if (TryRange(formula, ref i, sheet, out var token))
+            {
+                found.Add(token with { Start = start, Length = i - start });
+                continue;
+            }
 
             // Not a reference. Step over the whole name, never back into the middle of it, or "MyRange" would
             // be rescanned as the column NGE and a rejected row would come back as a smaller one.
@@ -101,24 +168,25 @@ public static class Refs
     /// <summary>What one corner of a reference turned out to be.</summary>
     private enum Corner { None, Cell, WholeColumn, WholeRow }
 
-    private static bool TryRange(string text, ref int i, string? sheet, out RefRange range)
+    private static bool TryRange(string text, ref int i, string? sheet, out Token token)
     {
-        range = default;
+        token = default;
         int save = i;
 
-        var first = ReadCorner(text, ref i, out int c1, out int r1);
+        var first = ReadCorner(text, ref i, out int c1, out int r1, out bool cf1, out bool rf1);
         if (first == Corner.None) { i = save; return false; }
 
         // A name immediately followed by "(" is a function call, never a reference.
         if (i < text.Length && text[i] == '(') { i = save; return false; }
 
         int c2 = c1, r2 = r1;
+        bool cf2 = cf1, rf2 = rf1;
         var second = Corner.None;
         if (i < text.Length && text[i] == ':')
         {
             int probe = i + 1;
-            second = ReadCorner(text, ref probe, out int c3, out int r3);
-            if (second != Corner.None) { i = probe; c2 = c3; r2 = r3; }
+            second = ReadCorner(text, ref probe, out int c3, out int r3, out bool cf3, out bool rf3);
+            if (second != Corner.None) { i = probe; c2 = c3; r2 = r3; cf2 = cf3; rf2 = rf3; }
         }
 
         if (second == Corner.None)
@@ -130,17 +198,25 @@ public static class Refs
         else if (first == Corner.WholeColumn) { r1 = 1; r2 = MaxRow; }
         else if (first == Corner.WholeRow) { c1 = 1; c2 = MaxColumn; }
 
-        range = new RefRange(sheet, Math.Min(c1, c2), Math.Min(r1, r2), Math.Max(c1, c2), Math.Max(r1, r2));
+        bool swappedColumns = c1 > c2, swappedRows = r1 > r2;
+        var range = new RefRange(sheet, Math.Min(c1, c2), Math.Min(r1, r2), Math.Max(c1, c2), Math.Max(r1, r2));
+        token = new Token(0, 0, range,
+            first switch { Corner.WholeColumn => Shape.WholeColumn, Corner.WholeRow => Shape.WholeRow, _ => Shape.Cell },
+            swappedColumns ? cf2 : cf1, swappedRows ? rf2 : rf1,
+            swappedColumns ? cf1 : cf2, swappedRows ? rf1 : rf2,
+            second != Corner.None);
         return true;
     }
 
     /// <summary>One corner: letters then digits, either part optionally absolute with a dollar.</summary>
-    private static Corner ReadCorner(string text, ref int i, out int column, out int row)
+    private static Corner ReadCorner(string text, ref int i, out int column, out int row,
+                                     out bool columnFixed, out bool rowFixed)
     {
         column = 1; row = 1;
+        columnFixed = rowFixed = false;
         int save = i, letters = 0, digits = 0, col = 0, rw = 0;
 
-        if (i < text.Length && text[i] == '$') i++;
+        if (i < text.Length && text[i] == '$') { i++; columnFixed = true; }
         while (i < text.Length && char.IsAsciiLetter(text[i]) && letters < 4)
         {
             col = col * 26 + (char.ToUpperInvariant(text[i]) - 'A' + 1);
@@ -148,7 +224,7 @@ public static class Refs
         }
         if (i < text.Length && char.IsAsciiLetter(text[i])) { i = save; return Corner.None; }   // too long for a column
 
-        if (i < text.Length && text[i] == '$') i++;
+        if (i < text.Length && text[i] == '$') { i++; rowFixed = true; }
         while (i < text.Length && char.IsAsciiDigit(text[i]))
         {
             rw = rw * 10 + (text[i] - '0');
@@ -159,6 +235,8 @@ public static class Refs
         // A letter, digit or underscore straight after means this was part of a longer name.
         if (i < text.Length && (char.IsAsciiLetterOrDigit(text[i]) || text[i] is '_' or '.')) { i = save; return Corner.None; }
         if (letters > 0 && col > MaxColumn) { i = save; return Corner.None; }
+        if (letters == 0) columnFixed = false;
+        if (digits == 0) rowFixed = false;
 
         if (letters > 0 && digits > 0) { column = col; row = rw; return Corner.Cell; }
         if (letters > 0) { column = col; return Corner.WholeColumn; }

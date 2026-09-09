@@ -12,6 +12,11 @@ public sealed class PlainFile
     public FileKind Kind { get; }
     public string Path { get; }
 
+    private Properties? _properties;
+
+    /// <summary>What the file says about itself: author, company, title, dates.</summary>
+    public Properties Properties => _properties ??= new Properties(Package);
+
     public Workbook? Workbook { get; }
     public Document? Document { get; }
     public Deck? Deck { get; }
@@ -94,6 +99,7 @@ public sealed class PlainFile
 
     public void Flush()
     {
+        _properties?.Flush();
         Workbook?.Flush();
         Document?.Flush();
         Deck?.Flush();

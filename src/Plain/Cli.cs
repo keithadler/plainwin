@@ -16,7 +16,7 @@ public static class Cli
     public const string Version = "1.0.0";
 
     private static readonly string[] Verbs =
-        { "info", "parts", "text", "cells", "get", "set", "new", "roundtrip", "selftest", "version", "help", "--help", "-h", "--version" };
+        { "info", "parts", "text", "cells", "get", "set", "new", "replace", "row", "column", "props", "roundtrip", "selftest", "version", "help", "--help", "-h", "--version" };
 
     public static bool IsVerb(string arg) => Verbs.Contains(arg, StringComparer.OrdinalIgnoreCase);
 
@@ -31,6 +31,12 @@ public static class Cli
           plain cells <file> [sheet]       every filled cell, as reference<tab>value
           plain get <file> <ref>           one cell, or one block by number
           plain set <file> <ref> <value>   change one cell or block, then save in place
+          plain replace <file> <find> <with> [--case] [--whole] [--dry-run]
+                                            change every occurrence, everywhere in the file
+          plain row <file> insert|delete <n> [sheet]     put a row in or take one out
+          plain column <file> insert|delete <ref> [sheet] the same for a column, named A, B, C
+          plain props <file> [--set Name=value]... [--strip]
+                                            show, change or clear what the file says about itself
           plain roundtrip <file>...        prove a save changes nothing: byte compares the result
           plain selftest [suite]           run the built-in checks
           plain version
@@ -214,6 +220,114 @@ public static class Cli
                     var (total, edited, kept) = file.Counts();
                     file.Save();
                     o.WriteLine($"saved {Path.GetFileName(file.Path)}: {edited} of {total} parts rewritten, {kept} kept byte for byte");
+                    return 0;
+                }
+
+                case "replace":
+                {
+                    if (rest.Count < 3) { err.WriteLine("replace <file> <find> <with>"); return 64; }
+                    var options = new Replace.Options(
+                        MatchCase: Flag(args, "--case"),
+                        WholeCell: Flag(args, "--whole"),
+                        IncludeFormulas: !Flag(args, "--no-formulas"));
+                    var file = PlainFile.Open(rest[0]);
+                    var result = Replace.InFile(file, rest[1], rest[2], options);
+                    if (!result.Any) { o.WriteLine($"\"{rest[1]}\" is not in {Path.GetFileName(file.Path)}; nothing changed."); return 1; }
+                    if (Flag(args, "--dry-run"))
+                    {
+                        o.WriteLine($"would change {result.Occurrences} occurrence{(result.Occurrences == 1 ? "" : "s")} in {result.Cells} place{(result.Cells == 1 ? "" : "s")}; nothing written");
+                        return 0;
+                    }
+                    var (total, edited, kept) = file.Counts();
+                    file.Save();
+                    o.WriteLine($"changed {result.Occurrences} occurrence{(result.Occurrences == 1 ? "" : "s")} in {result.Cells} place{(result.Cells == 1 ? "" : "s")}; {edited} of {total} parts rewritten, {kept} kept byte for byte");
+                    return 0;
+                }
+
+                case "row" or "column":
+                {
+                    if (rest.Count < 3) { err.WriteLine($"{verb} <file> insert|delete <where> [sheet]"); return 64; }
+                    string how = rest[1].ToLowerInvariant();
+                    if (how is not ("insert" or "delete")) { err.WriteLine("insert or delete"); return 64; }
+
+                    var file = PlainFile.Open(rest[0]);
+                    if (file.Workbook is null) { err.WriteLine($"{verb} only works on a spreadsheet."); return 2; }
+                    var sheet = rest.Count > 3
+                        ? file.Workbook.Sheets.FirstOrDefault(x => x.Name.Equals(rest[3], StringComparison.OrdinalIgnoreCase))
+                        : file.Workbook.Sheets[0];
+                    if (sheet is null) { err.WriteLine($"no sheet called \"{rest[3]}\"."); return 2; }
+
+                    int at;
+                    if (verb == "row")
+                    {
+                        if (!int.TryParse(rest[2], out at) || at < 1) { err.WriteLine("a row is a number from 1."); return 64; }
+                    }
+                    else
+                    {
+                        // A column is named the way it is on screen: A, B, AA.
+                        if (!CellRef.TryParse(rest[2] + "1", out var asCell)) { err.WriteLine("a column is a letter like A or AB."); return 64; }
+                        at = asCell.Column;
+                    }
+
+                    var edit = (verb, how) switch
+                    {
+                        ("row", "insert") => GridEdit.InsertRow,
+                        ("row", _) => GridEdit.DeleteRow,
+                        (_, "insert") => GridEdit.InsertColumn,
+                        _ => GridEdit.DeleteColumn,
+                    };
+                    int touched = file.Workbook.Apply(sheet, edit, at);
+                    var (total, edited, kept) = file.Counts();
+                    file.Save();
+                    o.WriteLine($"{how}ed {verb} {rest[2]} on {sheet.Name}: {touched} formula{(touched == 1 ? "" : "s")} adjusted, {edited} of {total} parts rewritten, {kept} kept byte for byte");
+                    return 0;
+                }
+
+                case "props":
+                {
+                    if (rest.Count < 1) { err.WriteLine("props <file> [--set Name=value] [--strip]"); return 64; }
+                    var file = PlainFile.Open(rest[0]);
+                    var props = file.Properties;
+
+                    var sets = args.Where(a => a.StartsWith("--set=", StringComparison.Ordinal)).Select(a => a[6..]).ToList();
+                    for (int i = 0; i < args.Length - 1; i++) if (args[i] == "--set") sets.Add(args[i + 1]);
+
+                    bool changed = false;
+                    foreach (var pair in sets)
+                    {
+                        int eq = pair.IndexOf('=');
+                        if (eq <= 0) { err.WriteLine($"--set wants Name=value, not \"{pair}\"."); return 64; }
+                        var name = pair[..eq].Trim();
+                        if (!props.Set(name, pair[(eq + 1)..])) { err.WriteLine($"there is no property called \"{name}\"."); return 64; }
+                        changed = true;
+                    }
+
+                    if (Flag(args, "--strip"))
+                    {
+                        int cleared = props.Strip();
+                        o.WriteLine($"cleared {cleared} propert{(cleared == 1 ? "y" : "ies")} that named someone");
+                        changed = changed || cleared > 0;
+                    }
+
+                    if (changed)
+                    {
+                        var (total, edited, kept) = file.Counts();
+                        file.Save();
+                        o.WriteLine($"saved: {edited} of {total} parts rewritten, {kept} kept byte for byte");
+                        return 0;
+                    }
+
+                    if (json)
+                    {
+                        o.WriteLine(JsonSerializer.Serialize(props.All().ToDictionary(p => p.Name, p => p.Value),
+                            new JsonSerializerOptions { WriteIndented = true }));
+                        return 0;
+                    }
+                    foreach (var (name, value) in props.All())
+                        o.WriteLine($"{name,-22}{(value.Length == 0 ? "-" : value)}");
+                    var revealing = props.Revealing();
+                    if (revealing.Count > 0)
+                        o.WriteLine($"\n{revealing.Count} of these name a person or an organisation: {string.Join(", ", revealing.Select(r => r.Name))}");
                     return 0;
                 }
 
