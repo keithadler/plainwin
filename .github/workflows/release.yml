@@ -47,7 +47,16 @@ jobs:
 
       - name: What the console twin says about itself, from the file that will be published
         shell: pwsh
-        run: dist/plain-${{ github.ref_name }}.exe version 2>$null || dist/plain-$("${{ github.ref_name }}".TrimStart('v'))-x64.exe version
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart('v')
+          # The runner is x64, so that is the one it can run. It says its own version, which is how the built
+          # file is checked against the tag rather than the tag being taken on trust.
+          $twin = "dist/plain-$version-x64.exe"
+          $said = & $twin version | Select-Object -First 1
+          Write-Host $said
+          if ($said -notmatch [regex]::Escape($version)) {
+            throw "The file says '$said' but the tag says $version."
+          }
 
       - name: Write the sums
         shell: pwsh
