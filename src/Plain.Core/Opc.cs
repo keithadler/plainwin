@@ -52,6 +52,9 @@ public sealed class OpcPackage
 
         internal byte[]? Replacement;
 
+        /// <summary>A part Plain made, which has no original bytes anywhere in the file it came from.</summary>
+        internal bool Added;
+
         /// <summary>True once something in this session replaced the part's content.</summary>
         public bool Edited => Replacement is not null;
 
@@ -236,9 +239,35 @@ public sealed class OpcPackage
     public string ReadText(string name) => DecodeUtf8(Read(name));
 
     /// <summary>Replace a part's content. Every other part stays exactly as it was found.</summary>
+    /// <summary>
+    /// Put a part into the package that was not there before. Everything already in the file keeps its exact bytes;
+    /// the new one is written as a fresh entry at the end. This exists because a deck cannot gain a slide without
+    /// gaining a part, and it is deliberately separate from Write so that adding one is never an accident: Write
+    /// still refuses a name it does not know.
+    /// </summary>
+    public void Add(string name, byte[] content)
+    {
+        name = Normalize(name);
+        if (Find(name) is not null) throw new PackageException($"\"{name}\" is already in this file.");
+        if (Zip64Container) throw new PackageException("This package uses ZIP64 records; Plain will not add to it.");
+        if (content.LongLength > MaxPartSize) throw new PackageException($"\"{name}\" is too large to put in this file.");
+
+        var part = new Part
+        {
+            Name = name,
+            CentralOffset = 0, CentralLength = 0, LocalOffset = 0, LocalLength = 0,
+            CompressedSize = 0, UncompressedSize = content.LongLength,
+            Method = 8, Flags = 0, Crc = Crc32.Of(content), DataOffset = 0, Zip64 = false,
+            Replacement = content,
+            Added = true,
+        };
+        _parts.Add(part);
+        _byName[name] = part;
+    }
+
     public void Write(string name, byte[] content)
     {
-        var part = Find(name) ?? throw new PackageException($"This file has no part called \"{name}\"; Plain does not add parts.");
+        var part = Find(name) ?? throw new PackageException($"This file has no part called \"{name}\"; Plain does not add parts. Use Add.");
         if (part.Zip64) throw new PackageException($"The part \"{name}\" uses ZIP64 records; Plain will not edit those yet.");
         part.Replacement = content;
     }
@@ -344,6 +373,25 @@ public sealed class OpcPackage
             if (payload.Length >= content.Length) { payload = content; method = 0; }
             uint crc = Crc32.Of(content);
 
+            if (part.Added)
+            {
+                // Nothing to copy from, so build a plain local header: the smallest thing every reader accepts.
+                var nameBytes = Encoding.UTF8.GetBytes(part.Name);
+                var fresh = new byte[30 + nameBytes.Length];
+                BinaryPrimitives.WriteUInt32LittleEndian(fresh.AsSpan(0), 0x04034b50);
+                BinaryPrimitives.WriteUInt16LittleEndian(fresh.AsSpan(4), 20);      // version needed
+                BinaryPrimitives.WriteUInt16LittleEndian(fresh.AsSpan(6), 0x0800);  // the name is UTF-8
+                BinaryPrimitives.WriteUInt16LittleEndian(fresh.AsSpan(8), method);
+                BinaryPrimitives.WriteUInt32LittleEndian(fresh.AsSpan(14), crc);
+                BinaryPrimitives.WriteUInt32LittleEndian(fresh.AsSpan(18), (uint)payload.Length);
+                BinaryPrimitives.WriteUInt32LittleEndian(fresh.AsSpan(22), (uint)content.Length);
+                BinaryPrimitives.WriteUInt16LittleEndian(fresh.AsSpan(26), (ushort)nameBytes.Length);
+                Array.Copy(nameBytes, 0, fresh, 30, nameBytes.Length);
+                ms.Write(fresh);
+                ms.Write(payload);
+                continue;
+            }
+
             // Rebuild the local header, keeping the original's version, timestamps, name and extra bytes.
             int lNameLen = U16(_raw, (int)part.LocalOffset + 26);
             int lExtraLen = U16(_raw, (int)part.LocalOffset + 28);
@@ -362,6 +410,29 @@ public sealed class OpcPackage
         for (int i = 0; i < _parts.Count; i++)
         {
             var part = _parts[i];
+            if (part.Added)
+            {
+                var content = part.Replacement!;
+                byte[] payload = Deflate(content);
+                ushort method = 8;
+                if (payload.Length >= content.Length) { payload = content; method = 0; }
+                var nameBytes = Encoding.UTF8.GetBytes(part.Name);
+                var fresh = new byte[46 + nameBytes.Length];
+                BinaryPrimitives.WriteUInt32LittleEndian(fresh.AsSpan(0), 0x02014b50);
+                BinaryPrimitives.WriteUInt16LittleEndian(fresh.AsSpan(4), 20);      // made by
+                BinaryPrimitives.WriteUInt16LittleEndian(fresh.AsSpan(6), 20);      // needed
+                BinaryPrimitives.WriteUInt16LittleEndian(fresh.AsSpan(8), 0x0800);
+                BinaryPrimitives.WriteUInt16LittleEndian(fresh.AsSpan(10), method);
+                BinaryPrimitives.WriteUInt32LittleEndian(fresh.AsSpan(16), Crc32.Of(content));
+                BinaryPrimitives.WriteUInt32LittleEndian(fresh.AsSpan(20), (uint)payload.Length);
+                BinaryPrimitives.WriteUInt32LittleEndian(fresh.AsSpan(24), (uint)content.Length);
+                BinaryPrimitives.WriteUInt16LittleEndian(fresh.AsSpan(28), (ushort)nameBytes.Length);
+                BinaryPrimitives.WriteUInt32LittleEndian(fresh.AsSpan(42), (uint)newOffsets[i]);
+                Array.Copy(nameBytes, 0, fresh, 46, nameBytes.Length);
+                ms.Write(fresh);
+                continue;
+            }
+
             var rec = new byte[part.CentralLength];
             Array.Copy(_raw, part.CentralOffset, rec, 0, rec.Length);
             BinaryPrimitives.WriteUInt32LittleEndian(rec.AsSpan(42), (uint)newOffsets[i]);
@@ -383,6 +454,9 @@ public sealed class OpcPackage
 
         var eocd = new byte[_eocdLength];
         Array.Copy(_raw, _eocdOffset, eocd, 0, eocd.Length);
+        // The counts change when a part is added, and a reader that believes the old count stops early.
+        BinaryPrimitives.WriteUInt16LittleEndian(eocd.AsSpan(8), (ushort)_parts.Count);
+        BinaryPrimitives.WriteUInt16LittleEndian(eocd.AsSpan(10), (ushort)_parts.Count);
         BinaryPrimitives.WriteUInt32LittleEndian(eocd.AsSpan(12), (uint)(cdEnd - cdStart));
         BinaryPrimitives.WriteUInt32LittleEndian(eocd.AsSpan(16), (uint)cdStart);
         ms.Write(eocd);

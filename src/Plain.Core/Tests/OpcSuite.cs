@@ -4,6 +4,12 @@ namespace Plain.Core.Tests;
 
 public static class OpcSuite
 {
+    /// <summary>Did this throw? Used where refusing is the behaviour being checked.</summary>
+    private static bool Threw(Action what)
+    {
+        try { what(); return false; } catch { return true; }
+    }
+
     public static Suite Run()
     {
         var s = new Suite("opc");
@@ -137,6 +143,38 @@ public static class OpcSuite
         NewFiles(s);
         Summaries(s);
         Homes(s);
+        // ---- adding a part, which is the only way a deck gains a slide ----
+        if (!Fixtures.Missing(s, "deck.pptx"))
+        {
+            var deckBytes = File.ReadAllBytes(Fixtures.Path_("deck.pptx")!);
+            var addPkg = OpcPackage.Read(deckBytes);
+            var wasNamed = addPkg.Parts.Select(x => x.Name).ToList();
+            var firstBefore = addPkg.Read(wasNamed[0]);
+
+            addPkg.Add("ppt/media/plain-note.txt", System.Text.Encoding.UTF8.GetBytes("a part that was not there"));
+            s.Check("the package knows about the new part", addPkg.Has("ppt/media/plain-note.txt"));
+            s.Check("adding the same name twice is refused", Threw(() =>
+                addPkg.Add("ppt/media/plain-note.txt", new byte[] { 1 })));
+            s.Check("Write still refuses a name it does not know", Threw(() =>
+                addPkg.Write("ppt/media/nothing-here.txt", new byte[] { 1 })));
+
+            var rebuilt = addPkg.ToBytes();
+            var reopened = OpcPackage.Read(rebuilt);
+            s.Check("the file opens again", reopened.Parts.Count == wasNamed.Count + 1);
+            s.Check("the new part reads back",
+                System.Text.Encoding.UTF8.GetString(reopened.Read("ppt/media/plain-note.txt")) == "a part that was not there");
+
+            // The promise: everything that was already there comes back exactly as it was.
+            bool allSame = true;
+            var fresh = OpcPackage.Read(deckBytes);
+            foreach (var name in wasNamed)
+                if (!reopened.Read(name).AsSpan().SequenceEqual(fresh.Read(name))) { allSame = false; break; }
+            s.Check("every part that was already there is unchanged", allSame);
+            s.Check("and the first one in particular", reopened.Read(wasNamed[0]).AsSpan().SequenceEqual(firstBefore));
+            s.Check("the parts that were not edited kept their own bytes",
+                reopened.Parts.Count(x => x.Name != "ppt/media/plain-note.txt") == wasNamed.Count);
+        }
+
         return s;
     }
 

@@ -35,6 +35,13 @@
             <ContextMenu x:Name="MoreMenu">
               <MenuItem Header="Print…" Click="OnPrint" InputGestureText="Ctrl+P"/>
               <MenuItem Header="Save as PDF…" Click="OnPdf"/>
+              <Separator x:Name="ShapeSeparator"/>
+              <MenuItem x:Name="AddSlideItem" Header="Add a slide after this one" Click="OnAddSlide"/>
+              <MenuItem x:Name="RemoveSlideItem" Header="Take this slide out" Click="OnRemoveSlide"/>
+              <MenuItem x:Name="MoveSlideUpItem" Header="Move this slide earlier" Click="OnMoveSlideUp"/>
+              <MenuItem x:Name="MoveSlideDownItem" Header="Move this slide later" Click="OnMoveSlideDown"/>
+              <MenuItem x:Name="AddTableRowItem" Header="Add a row to the table…" Click="OnAddTableRow"/>
+              <MenuItem x:Name="RemoveTableRowItem" Header="Take a row out of the table…" Click="OnRemoveTableRow"/>
               <Separator/>
               <MenuItem Header="Reading…" Click="OnSettings"/>
               <Separator/>

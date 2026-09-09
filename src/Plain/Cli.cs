@@ -16,7 +16,7 @@ public static class Cli
     public const string Version = "1.1.0";
 
     private static readonly string[] Verbs =
-        { "info", "parts", "text", "cells", "get", "set", "new", "replace", "row", "column", "width", "freeze", "sort", "explorer", "props", "pdf", "csv", "import", "count", "images", "apply", "changes", "comments", "roundtrip", "selftest", "version", "help", "--help", "-h", "--version" };
+        { "info", "parts", "text", "cells", "get", "set", "new", "replace", "row", "column", "width", "freeze", "sort", "explorer", "slide", "tablerow", "props", "pdf", "csv", "import", "count", "images", "apply", "changes", "comments", "roundtrip", "selftest", "version", "help", "--help", "-h", "--version" };
 
     public static bool IsVerb(string arg) => Verbs.Contains(arg, StringComparer.OrdinalIgnoreCase);
 
@@ -40,6 +40,8 @@ public static class Cli
           plain freeze <file> <rows> [sheet]             keep this many rows at the top on screen
           plain sort <file> <range> <col> [down] [sheet] sort rows, refusing if a formula would be broken
           plain explorer on|off|status     "Edit in Plain" on the right-click menu, for your account only
+          plain slide <file> add|remove|move <n> [to]   add, take out or move a slide
+          plain tablerow <file> add|remove <table> <row>  a row in a table in a document
 
         For pdf: --paper A4|Letter|Legal|A3|A5  --landscape  --margin <mm>
                  --header "<text>"  --footer "<text>"   with {page} and {pages}
@@ -272,6 +274,52 @@ public static class Cli
                     var (total, edited, kept) = file.Counts();
                     file.Save();
                     o.WriteLine($"changed {result.Occurrences} occurrence{(result.Occurrences == 1 ? "" : "s")} in {result.Cells} place{(result.Cells == 1 ? "" : "s")}; {edited} of {total} parts rewritten, {kept} kept byte for byte");
+                    return 0;
+                }
+
+                case "slide":
+                {
+                    if (rest.Count < 2) { err.WriteLine("slide <file> add|remove|move <n> [to]"); return 64; }
+                    var file = PlainFile.Open(rest[0]);
+                    if (file.Deck is null) { err.WriteLine("slide only works on a presentation."); return 2; }
+
+                    string how = rest[1].ToLowerInvariant();
+                    int at = rest.Count > 2 && int.TryParse(rest[2], out var n) ? n : 0;
+                    Slides.Result outcome = how switch
+                    {
+                        "add" => Slides.Add(file.Package, at),
+                        "remove" => Slides.Remove(file.Package, at),
+                        "move" => rest.Count > 3 && int.TryParse(rest[3], out var to)
+                                  ? Slides.Move(file.Package, at, to)
+                                  : new Slides.Refused("move needs the slide and where it goes, as in: move 3 1"),
+                        _ => new Slides.Refused("add, remove or move"),
+                    };
+
+                    if (outcome is Slides.Refused refused) { err.WriteLine(refused.Reason); return 2; }
+                    file.Flush();
+                    File.WriteAllBytes(file.Path, file.Package.ToBytes());
+                    o.WriteLine(((Slides.Done)outcome).What);
+                    return 0;
+                }
+
+                case "tablerow":
+                {
+                    if (rest.Count < 4) { err.WriteLine("tablerow <file> add|remove <table> <row>"); return 64; }
+                    var file = PlainFile.Open(rest[0]);
+                    if (file.Document is null) { err.WriteLine("tablerow only works on a document."); return 2; }
+                    if (!int.TryParse(rest[2], out var table) || !int.TryParse(rest[3], out var row))
+                    { err.WriteLine("the table and the row are numbers, counting from 1."); return 64; }
+
+                    var outcome = rest[1].ToLowerInvariant() switch
+                    {
+                        "add" => file.Document.InsertRow(table - 1, row),
+                        "remove" => file.Document.DeleteRow(table - 1, row),
+                        _ => new TableRows.Refused("add or remove"),
+                    };
+                    if (outcome is TableRows.Refused refused) { err.WriteLine(refused.Reason); return 2; }
+                    file.Flush();
+                    File.WriteAllBytes(file.Path, file.Package.ToBytes());
+                    o.WriteLine(((TableRows.Done)outcome).What);
                     return 0;
                 }
 

@@ -27,7 +27,7 @@ public sealed class Document
     private readonly OpcPackage _pkg;
     private readonly XDocument _doc;
     private readonly TextShape _shape;
-    private readonly List<XElement> _paragraphs;
+    private List<XElement> _paragraphs = new();
     private readonly Dialect D;
     private bool _dirty;
 
@@ -43,8 +43,18 @@ public sealed class Document
         _doc = Xml.Parse(pkg.Read(BodyPart));
         D = Dialect.Of(_doc.Root!);
         _shape = new TextShape(_doc.Root!, D.Word);
+        Index();
+    }
+
+    /// <summary>
+    /// Work out where every paragraph is. Done when the file opens, and again whenever a row is added to or taken
+    /// out of a table, because after that the old numbering points at the wrong paragraphs.
+    /// </summary>
+    private void Index()
+    {
         var body = _doc.Root!.Element(D.Word + "body") ?? _doc.Root!;
         _paragraphs = body.Descendants(D.Word + "p").ToList();
+        _place.Clear();
 
         // A document with no paragraphs at all means the body was not understood; say so rather than show a blank page.
         if (_paragraphs.Count == 0 && body.Elements().Any())
@@ -69,6 +79,66 @@ public sealed class Document
     }
 
     private readonly Dictionary<XElement, (int Table, int Row, int Column)> _place = new();
+
+    // ---------- the shape of a table ----------
+
+    /// <summary>How many rows each table in this document has, in the order they appear.</summary>
+    public IReadOnlyList<int> TableShape()
+    {
+        var body = _doc.Root!.Element(D.Word + "body") ?? _doc.Root!;
+        return body.Descendants(D.Word + "tbl").Select(t => t.Elements(D.Word + "tr").Count()).ToList();
+    }
+
+    private List<XElement>? RowsOf(int table)
+    {
+        var body = _doc.Root!.Element(D.Word + "body") ?? _doc.Root!;
+        var tables = body.Descendants(D.Word + "tbl").ToList();
+        if (table < 0 || table >= tables.Count) return null;
+        return tables[table].Elements(D.Word + "tr").ToList();
+    }
+
+    /// <summary>
+    /// Put a new empty row into a table, after the row given, or at the top when that is nought. The new row is a
+    /// copy of a neighbour with its words taken out, so it keeps the borders, shading and widths the table uses.
+    /// Building one from scratch would produce a row that looked nothing like the table it joined.
+    /// </summary>
+    public TableRows.Result InsertRow(int table, int after)
+    {
+        var rows = RowsOf(table);
+        if (rows is null) return new TableRows.Refused($"There is no table {table + 1} in this document.");
+        if (rows.Count == 0) return new TableRows.Refused("That table has no rows to copy the shape of.");
+
+        int copyFrom = Math.Clamp(after - 1, 0, rows.Count - 1);
+        var fresh = new XElement(rows[copyFrom]);
+        foreach (var paragraph in fresh.Descendants(D.Word + "p").ToList())
+        {
+            foreach (var run in paragraph.Elements(D.Word + "r").ToList()) run.Remove();
+            foreach (var inserted in paragraph.Elements(D.Word + "ins").ToList()) inserted.Remove();
+            foreach (var deleted in paragraph.Elements(D.Word + "del").ToList()) deleted.Remove();
+        }
+
+        if (after <= 0) rows[0].AddBeforeSelf(fresh);
+        else if (after >= rows.Count) rows[^1].AddAfterSelf(fresh);
+        else rows[after - 1].AddAfterSelf(fresh);
+
+        _dirty = true;
+        Index();
+        return new TableRows.Done($"A row is in, making {rows.Count + 1}.");
+    }
+
+    /// <summary>Take a row out of a table. The last row of a table cannot go, because Word calls that damage.</summary>
+    public TableRows.Result DeleteRow(int table, int row)
+    {
+        var rows = RowsOf(table);
+        if (rows is null) return new TableRows.Refused($"There is no table {table + 1} in this document.");
+        if (row < 1 || row > rows.Count) return new TableRows.Refused($"That table has no row {row}.");
+        if (rows.Count <= 1) return new TableRows.Refused("A table has to have a row in it, so this one cannot go.");
+
+        rows[row - 1].Remove();
+        _dirty = true;
+        Index();
+        return new TableRows.Done($"That row is out, leaving {rows.Count - 1}.");
+    }
 
     public IEnumerable<Block> Blocks()
     {

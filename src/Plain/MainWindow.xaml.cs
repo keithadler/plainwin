@@ -616,6 +616,86 @@ public partial class MainWindow : Window
         return window.ShowDialog() == true && box.Text.Trim().Length > 0 ? box.Text.Trim() : null;
     }
 
+    // ---------- the shape of a deck, and of a table ----------
+
+    /// <summary>
+    /// Adding, removing and moving slides, and rows in a table. These change the shape of a file rather than its
+    /// words, so each one is done, saved into the model, and then the view is built again from the file: the
+    /// numbering of slides and paragraphs is different afterwards, and carrying on with the old numbering is how a
+    /// tool ends up editing the wrong thing.
+    /// </summary>
+    private void AfterShapeChange(string said)
+    {
+        if (_active is null) return;
+        _active.Dirty = true;
+        _active.Undo.Clear();     // the old steps point at slides and rows that have moved
+        _active.Redo.Clear();
+        Say(said + " Undo cannot reach past a change of shape, so the steps before it have been let go.");
+
+        // Build the view again from the file as it now is.
+        var path = _active.FilePath;
+        _active.File.Flush();
+        var rebuilt = PlainFile.Read(_active.File.Package.ToBytes(), path);
+        var replacement = Build(rebuilt, path);
+        replacement.Dirty = true;
+        int at = _open.IndexOf(_active);
+        _open[at] = replacement;
+        _active = replacement;
+        Refresh();
+    }
+
+    private void OnAddSlide(object sender, RoutedEventArgs e) => Slide(deck => Core.Slides.Add(
+        _active!.File.Package, deck.Current.Number));
+
+    private void OnRemoveSlide(object sender, RoutedEventArgs e) => Slide(deck => Core.Slides.Remove(
+        _active!.File.Package, deck.Current.Number));
+
+    private void OnMoveSlideUp(object sender, RoutedEventArgs e) => Slide(deck => Core.Slides.Move(
+        _active!.File.Package, deck.Current.Number, deck.Current.Number - 1));
+
+    private void OnMoveSlideDown(object sender, RoutedEventArgs e) => Slide(deck => Core.Slides.Move(
+        _active!.File.Package, deck.Current.Number, deck.Current.Number + 1));
+
+    private void Slide(Func<DeckView, Core.Slides.Result> what)
+    {
+        if (_active?.View is not DeckView deck) return;
+        var outcome = what(deck);
+        if (outcome is Core.Slides.Refused refused) { Say(refused.Reason); return; }
+        AfterShapeChange(((Core.Slides.Done)outcome).What);
+    }
+
+    private void OnAddTableRow(object sender, RoutedEventArgs e) => TableRow(add: true);
+    private void OnRemoveTableRow(object sender, RoutedEventArgs e) => TableRow(add: false);
+
+    private void TableRow(bool add)
+    {
+        if (_active?.File.Document is not { } doc) return;
+        var shape = doc.TableShape();
+        if (shape.Count == 0) { Say("There are no tables in this document."); return; }
+
+        int table = 0;
+        if (shape.Count > 1)
+        {
+            var which = Prompt(add ? "Add a row" : "Take a row out",
+                $"Which table? There are {shape.Count}, counting from the top.", "1");
+            if (which is null) return;
+            if (!int.TryParse(which, out table) || table < 1 || table > shape.Count)
+            { Say($"There is no table {which}."); return; }
+            table--;
+        }
+
+        var asked = Prompt(add ? "Add a row" : "Take a row out",
+            add ? $"After which row? That table has {shape[table]}. Nought puts it at the top."
+                : $"Which row? That table has {shape[table]}.",
+            add ? shape[table].ToString() : "1");
+        if (asked is null) return;
+        if (!int.TryParse(asked, out var row)) { Say($"\"{asked}\" is not a row number."); return; }
+
+        var outcome = add ? doc.InsertRow(table, row) : doc.DeleteRow(table, row);
+        if (outcome is Core.TableRows.Refused refused) { Say(refused.Reason); return; }
+        AfterShapeChange(((Core.TableRows.Done)outcome).What);
+    }
+
     private void OnRedo(object sender, RoutedEventArgs e)
     {
         if (_active is null || _active.Redo.Count == 0) return;
@@ -1156,6 +1236,14 @@ public partial class MainWindow : Window
         CopyBtn.IsEnabled = _active is not null;
         UndoBtn.IsEnabled = _active?.Undo.Count > 0;
         RedoBtn.IsEnabled = _active?.Redo.Count > 0;
+
+        bool isDeck = _active?.View is DeckView;
+        bool hasTables = _active?.File.Document?.TableShape().Count > 0;
+        foreach (var item in new[] { AddSlideItem, RemoveSlideItem, MoveSlideUpItem, MoveSlideDownItem })
+            item.Visibility = isDeck ? Visibility.Visible : Visibility.Collapsed;
+        foreach (var item in new[] { AddTableRowItem, RemoveTableRowItem })
+            item.Visibility = hasTables ? Visibility.Visible : Visibility.Collapsed;
+        ShapeSeparator.Visibility = isDeck || hasTables ? Visibility.Visible : Visibility.Collapsed;
         SaveBtn.Content = _active?.Dirty == true ? "Save" : "Saved";
 
         ContextHint.Text = _active?.File.Kind switch
