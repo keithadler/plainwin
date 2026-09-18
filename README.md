@@ -1,5 +1,9 @@
 # Plain for Windows
 
+[![CI](https://github.com/keithadler/plainwin/actions/workflows/ci.yml/badge.svg)](https://github.com/keithadler/plainwin/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/keithadler/plainwin?sort=semver)](https://github.com/keithadler/plainwin/releases/latest)
+[![License](https://img.shields.io/github/license/keithadler/plainwin)](https://github.com/keithadler/plainwin/blob/main/LICENSE)
+
 Opens Word, Excel and PowerPoint files. Edits the things you actually change. Never damages the rest.
 
 ## Download
