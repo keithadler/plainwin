@@ -535,6 +535,7 @@ public sealed class Sheet
             _data = _doc.Root!.Element(D.Sheet + "sheetData")
                     ?? throw new OpcPackage.PackageException($"The sheet \"{Name}\" has no cell data.");
             FillImpliedReferences(_data);
+            ExpandSharedFormulas(_data);
             return _data;
         }
     }
@@ -562,31 +563,211 @@ public sealed class Sheet
     }
 
     /// <summary>
-    /// Typing over the header cell of a table has to rename that table's column too, as Excel does. Left alone, the
-    /// table still names the old column and Excel reports the file as damaged.
+    /// A shared formula is written once, on its first cell, and the cells that share it carry only a number. Plain
+    /// edits one cell at a time, and an edit to the first cell, or a row going out from under it, would leave the
+    /// others pointing at nothing. So each shared cell gets its own formula, moved by how far it sits from the first.
+    /// It means exactly the same thing, and it is only written back if the sheet is edited.
     /// </summary>
-    private void RenameTableColumn(CellRef reference, string typed)
+    private void ExpandSharedFormulas(XElement data)
     {
+        var masters = new Dictionary<string, (CellRef At, string Text)>(StringComparer.Ordinal);
+        var shared = new List<(XElement Formula, CellRef At, string? Id)>();
+        foreach (var cell in data.Elements(D.Sheet + "row").SelectMany(r => r.Elements(D.Sheet + "c")))
+        {
+            var f = cell.Element(D.Sheet + "f");
+            if (f is null || (string?)f.Attribute("t") != "shared") continue;
+            if (!CellRef.TryParse((string?)cell.Attribute("r") ?? "", out var at)) continue;
+            string? id = (string?)f.Attribute("si");
+            if (id is not null && f.Value.Length > 0) masters[id] = (at, f.Value);
+            shared.Add((f, at, id));
+        }
+        foreach (var (f, at, id) in shared)
+        {
+            if (id is null || !masters.TryGetValue(id, out var master)) continue;
+            if (f.Value.Length == 0)
+            {
+                int dc = at.Column - master.At.Column, dr = at.Row - master.At.Row;
+                f.Value = Refs.Rewrite(master.Text, token => Translate(token, dc, dr));
+            }
+            f.Attribute("t")?.Remove();
+            f.Attribute("si")?.Remove();
+            f.Attribute("ref")?.Remove();
+        }
+    }
+
+    /// <summary>A reference moved by a number of columns and rows, leaving what is pinned with a dollar where it is.</summary>
+    private static string? Translate(Refs.Token token, int dc, int dr)
+    {
+        var r = token.Range;
+        int c1 = token.Column1Fixed ? r.ColumnMin : r.ColumnMin + dc, c2 = token.Column2Fixed ? r.ColumnMax : r.ColumnMax + dc;
+        int r1 = token.Row1Fixed ? r.RowMin : r.RowMin + dr, r2 = token.Row2Fixed ? r.RowMax : r.RowMax + dr;
+        if (token.Kind == Refs.Shape.WholeColumn) { r1 = r.RowMin; r2 = r.RowMax; }
+        if (token.Kind == Refs.Shape.WholeRow) { c1 = r.ColumnMin; c2 = r.ColumnMax; }
+        if (c1 < 1 || r1 < 1 || c2 > 16384 || r2 > 1048576) return "#REF!";
+        return Refs.Write(r with { ColumnMin = c1, ColumnMax = c2, RowMin = r1, RowMax = r2 }, token.Kind,
+                          token.Column1Fixed, token.Row1Fixed, token.Column2Fixed, token.Row2Fixed, token.IsRange);
+    }
+
+    /// <summary>One Excel table on this sheet: its part, its parsed XML and the cells it covers.</summary>
+    private sealed record TableInfo(string Part, XDocument Doc, CellRef First, CellRef Last, bool HasHeader);
+
+    private List<TableInfo> Tables()
+    {
+        var found = new List<TableInfo>();
         var tableParts = Data.Parent?.Element(D.Sheet + "tableParts");
-        if (tableParts is null) return;
+        if (tableParts is null) return found;
         var rels = new Rels(_book.Package, PartName);
-        string name = typed.StartsWith('\'') ? typed[1..] : typed;
         foreach (var tp in tableParts.Elements(D.Sheet + "tablePart"))
         {
             string? part = rels[(string?)tp.Attribute(D.Rel + "id") ?? ""];
             if (part is null || !_book.Package.Has(part)) continue;
             var doc = Xml.Parse(_book.Package.Read(part));
-            var table = doc.Root!;
-            var ends = ((string?)table.Attribute("ref") ?? "").Split(':');
+            var ends = ((string?)doc.Root!.Attribute("ref") ?? "").Split(':');
             if (!CellRef.TryParse(ends[0], out var first) || !CellRef.TryParse(ends[^1], out var last)) continue;
-            if ((Xml.Int(table.Attribute("headerRowCount")) ?? 1) == 0) continue;
-            if (reference.Row != first.Row || reference.Column < first.Column || reference.Column > last.Column) continue;
-            var columns = table.Element(D.Sheet + "tableColumns")?.Elements(D.Sheet + "tableColumn").ToList();
-            int index = reference.Column - first.Column;
+            found.Add(new TableInfo(part, doc, first, last, (Xml.Int(doc.Root.Attribute("headerRowCount")) ?? 1) != 0));
+        }
+        return found;
+    }
+
+    private bool InTableHeader(CellRef cell) =>
+        Tables().Any(t => t.HasHeader && cell.Row == t.First.Row && cell.Column >= t.First.Column && cell.Column <= t.Last.Column);
+
+    /// <summary>
+    /// Where a run of lines (rows or columns) ends up after one goes in or comes out, or null when every line in it
+    /// went. A range that spans the change grows or shrinks to keep covering what it covered.
+    /// </summary>
+    private static (int Min, int Max)? ShiftSpan(int min, int max, GridEdit edit, int at)
+    {
+        int limit = edit is GridEdit.InsertRow or GridEdit.DeleteRow ? 1048576 : 16384;
+        if (edit is GridEdit.InsertRow or GridEdit.InsertColumn)
+            return (min >= at ? Math.Min(min + 1, limit) : min, max >= at ? Math.Min(max + 1, limit) : max);
+        if (min == at && max == at) return null;
+        return (min > at ? min - 1 : min, max >= at ? max - 1 : max);
+    }
+
+    /// <summary>A reference such as "B2:C4", or several of them separated by spaces, moved to follow the change.</summary>
+    private static string? ShiftRefText(string text, GridEdit edit, int at)
+    {
+        bool rows = edit is GridEdit.InsertRow or GridEdit.DeleteRow;
+        var kept = new List<string>();
+        foreach (var piece in text.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var ends = piece.Split(':');
+            if (ends.Length > 2 || !CellRef.TryParse(ends[0], out var a) || !CellRef.TryParse(ends[^1], out var b)) { kept.Add(piece); continue; }
+            var span = rows ? ShiftSpan(a.Row, b.Row, edit, at) : ShiftSpan(a.Column, b.Column, edit, at);
+            if (span is not { } s) continue;
+            var from = rows ? new CellRef(a.Column, s.Min) : new CellRef(s.Min, a.Row);
+            var to = rows ? new CellRef(b.Column, s.Max) : new CellRef(s.Max, b.Row);
+            kept.Add(from == to && ends.Length == 1 ? from.ToString() : from + ":" + to);
+        }
+        return kept.Count == 0 ? null : string.Join(' ', kept);
+    }
+
+    /// <summary>
+    /// Before anything moves: refuse a change Excel would refuse, rather than write a file it reports as damaged.
+    /// A row pushed off the bottom of the sheet, or a table's header row or columns cut in half, cannot be done in
+    /// place.
+    /// </summary>
+    private void RefuseWhatCannotBeDone(GridEdit edit, int at)
+    {
+        bool rows = edit is GridEdit.InsertRow or GridEdit.DeleteRow;
+        if (edit is GridEdit.InsertRow or GridEdit.InsertColumn)
+        {
+            int limit = rows ? 1048576 : 16384;
+            foreach (var row in Data.Elements(D.Sheet + "row"))
+                foreach (var cell in row.Elements(D.Sheet + "c"))
+                {
+                    if (!CellRef.TryParse((string?)cell.Attribute("r") ?? "", out var at2)) continue;
+                    if ((rows ? at2.Row : at2.Column) == limit && (rows ? at2.Row : at2.Column) >= at
+                        && (cell.Element(D.Sheet + "v") is not null || cell.Element(D.Sheet + "f") is not null || cell.Element(D.Sheet + "is") is not null))
+                        throw new OpcPackage.PackageException("That would push something off the end of the sheet, so Plain left the file alone.");
+                }
+        }
+        foreach (var t in Tables())
+        {
+            if (rows)
+            {
+                if (edit == GridEdit.DeleteRow && t.HasHeader && at == t.First.Row)
+                    throw new OpcPackage.PackageException("That row holds a table's headings. Plain does not remove a table; delete the table in Excel first.");
+                if (edit == GridEdit.DeleteRow && at >= t.First.Row && at <= t.Last.Row && t.Last.Row - t.First.Row < (t.HasHeader ? 2 : 1))
+                    throw new OpcPackage.PackageException("That would leave a table with no rows. Plain left the file alone.");
+            }
+            else
+            {
+                bool inside = edit == GridEdit.InsertColumn ? at > t.First.Column && at <= t.Last.Column
+                                                            : at >= t.First.Column && at <= t.Last.Column;
+                if (inside)
+                    throw new OpcPackage.PackageException("A table sits across that column. Plain does not add or remove a table's columns; do it in Excel.");
+            }
+        }
+    }
+
+    /// <summary>Move the things that point at cells and are not cells: merged ranges, links, rules, filters and tables.</summary>
+    private void ShiftRanges(GridEdit edit, int at)
+    {
+        var root = _doc?.Root;
+        if (root is null) return;
+
+        void Move(XElement owner, string name, string attribute)
+        {
+            foreach (var e in owner.Elements(D.Sheet + name).ToList())
+            {
+                var moved = ShiftRefText((string?)e.Attribute(attribute) ?? "", edit, at);
+                if (moved is null) e.Remove(); else e.SetAttributeValue(attribute, moved);
+            }
+        }
+        void Recount(XElement? owner, string name)
+        {
+            if (owner is null) return;
+            int n = owner.Elements(D.Sheet + name).Count();
+            if (n == 0) owner.Remove(); else if (owner.Attribute("count") is not null) owner.SetAttributeValue("count", n);
+        }
+
+        if (root.Element(D.Sheet + "mergeCells") is { } merges) { Move(merges, "mergeCell", "ref"); Recount(merges, "mergeCell"); }
+        if (root.Element(D.Sheet + "hyperlinks") is { } links) { Move(links, "hyperlink", "ref"); Recount(links, "hyperlink"); }
+        if (root.Element(D.Sheet + "dataValidations") is { } rules) { Move(rules, "dataValidation", "sqref"); Recount(rules, "dataValidation"); }
+        Move(root, "conditionalFormatting", "sqref");
+        if (root.Element(D.Sheet + "autoFilter") is { } filter)
+        {
+            var moved = ShiftRefText((string?)filter.Attribute("ref") ?? "", edit, at);
+            if (moved is null) filter.Remove(); else filter.SetAttributeValue("ref", moved);
+        }
+        _merges = null;
+
+        foreach (var t in Tables())
+        {
+            var moved = ShiftRefText((string?)t.Doc.Root!.Attribute("ref") ?? "", edit, at);
+            if (moved is null || moved == (string?)t.Doc.Root.Attribute("ref")) continue;
+            t.Doc.Root.SetAttributeValue("ref", moved);
+            if (t.Doc.Root.Element(D.Sheet + "autoFilter") is { } own)
+            {
+                // The filter covers the headings and the data, and stops short of a totals row.
+                var ends = moved.Split(':');
+                bool totals = (Xml.Int(t.Doc.Root.Attribute("totalsRowCount")) ?? 0) > 0;
+                if (totals && CellRef.TryParse(ends[^1], out var last) && CellRef.TryParse(ends[0], out var first))
+                    own.SetAttributeValue("ref", first + ":" + new CellRef(last.Column, last.Row - 1));
+                else own.SetAttributeValue("ref", moved);
+            }
+            _book.Package.Write(t.Part, Xml.ToBytes(t.Doc));
+        }
+    }
+
+    /// <summary>
+    /// Typing over the header cell of a table has to rename that table's column too, as Excel does. Left alone, the
+    /// table still names the old column and Excel reports the file as damaged.
+    /// </summary>
+    private void RenameTableColumn(CellRef reference, string typed)
+    {
+        string name = typed.StartsWith('\'') ? typed[1..] : typed;
+        foreach (var t in Tables())
+        {
+            if (!t.HasHeader || reference.Row != t.First.Row || reference.Column < t.First.Column || reference.Column > t.Last.Column) continue;
+            var columns = t.Doc.Root!.Element(D.Sheet + "tableColumns")?.Elements(D.Sheet + "tableColumn").ToList();
+            int index = reference.Column - t.First.Column;
             if (columns is null || index >= columns.Count || (string?)columns[index].Attribute("name") == name) continue;
-            if (columns.Any(c => string.Equals((string?)c.Attribute("name"), name, StringComparison.OrdinalIgnoreCase))) continue;
+            if (columns.Where((_, i) => i != index).Any(c => string.Equals((string?)c.Attribute("name"), name, StringComparison.OrdinalIgnoreCase))) continue;
             columns[index].SetAttributeValue("name", name);
-            _book.Package.Write(part, Xml.ToBytes(doc));
+            _book.Package.Write(t.Part, Xml.ToBytes(t.Doc));
         }
     }
 
@@ -911,7 +1092,7 @@ public sealed class Sheet
             _book.RequestFullRecalculation();
         }
         else if (double.TryParse(typed, NumberStyles.Float, CultureInfo.InvariantCulture, out var number)
-                 && !typed.Contains(' ') && double.IsFinite(number))
+                 && !typed.Contains(' ') && double.IsFinite(number) && !InTableHeader(reference))
         {
             c.Add(new XElement(D.Sheet + "v", number.ToString("R", CultureInfo.InvariantCulture)));
             _book.RequestFullRecalculation();
@@ -1251,6 +1432,7 @@ public sealed class Sheet
     internal void ShiftCells(GridEdit edit, int at)
     {
         var data = Data;
+        RefuseWhatCannotBeDone(edit, at);
 
         if (edit == GridEdit.DeleteRow)
             foreach (var row in data.Elements(D.Sheet + "row").Where(r => Xml.Int(r.Attribute("r"), 0) == at).ToList())
@@ -1286,8 +1468,17 @@ public sealed class Sheet
             row.Attribute("spans")?.Remove();
         }
 
+        // Whatever an insert pushed past the last row or column was empty (anything with content was refused above).
+        foreach (var row in data.Elements(D.Sheet + "row").Where(r => Xml.Int(r.Attribute("r"), 0) > 1048576).ToList()) row.Remove();
+        foreach (var cell in data.Elements(D.Sheet + "row").SelectMany(r => r.Elements(D.Sheet + "c")).ToList())
+        {
+            string letters = new string(((string?)cell.Attribute("r") ?? "").TakeWhile(char.IsAsciiLetter).ToArray());
+            if (letters.Length > 3 || (letters.Length == 3 && string.CompareOrdinal(letters.ToUpperInvariant(), "XFD") > 0)) cell.Remove();
+        }
+
         if (edit is GridEdit.InsertColumn or GridEdit.DeleteColumn) ShiftColumnWidths(edit, at);
         _doc?.Root?.Element(D.Sheet + "dimension")?.Remove();
+        ShiftRanges(edit, at);
 
         _rowIndex = null;
         _extent = null;
