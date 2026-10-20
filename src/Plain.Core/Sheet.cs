@@ -534,7 +534,59 @@ public sealed class Sheet
             _doc = Xml.Parse(_book.Package.Read(PartName));
             _data = _doc.Root!.Element(D.Sheet + "sheetData")
                     ?? throw new OpcPackage.PackageException($"The sheet \"{Name}\" has no cell data.");
+            FillImpliedReferences(_data);
             return _data;
+        }
+    }
+
+    /// <summary>
+    /// A row may leave out its number and a cell its reference; the file then means "one after the last". Plain looks
+    /// rows and cells up by reference, so without this an edit to a cell in such a row would add a second copy of the
+    /// row at the wrong place. The numbers are only written back if the sheet itself is edited.
+    /// </summary>
+    private void FillImpliedReferences(XElement data)
+    {
+        int rowNumber = 0;
+        foreach (var row in data.Elements(D.Sheet + "row"))
+        {
+            rowNumber = Xml.Int(row.Attribute("r")) is { } given ? given : rowNumber + 1;
+            if (row.Attribute("r") is null) row.SetAttributeValue("r", rowNumber);
+            int column = 0;
+            foreach (var cell in row.Elements(D.Sheet + "c"))
+            {
+                if (CellRef.TryParse((string?)cell.Attribute("r") ?? "", out var at)) { column = at.Column; continue; }
+                column++;
+                cell.SetAttributeValue("r", CellRef.ColumnName(column) + rowNumber.ToString(CultureInfo.InvariantCulture));
+            }
+        }
+    }
+
+    /// <summary>
+    /// Typing over the header cell of a table has to rename that table's column too, as Excel does. Left alone, the
+    /// table still names the old column and Excel reports the file as damaged.
+    /// </summary>
+    private void RenameTableColumn(CellRef reference, string typed)
+    {
+        var tableParts = Data.Parent?.Element(D.Sheet + "tableParts");
+        if (tableParts is null) return;
+        var rels = new Rels(_book.Package, PartName);
+        string name = typed.StartsWith('\'') ? typed[1..] : typed;
+        foreach (var tp in tableParts.Elements(D.Sheet + "tablePart"))
+        {
+            string? part = rels[(string?)tp.Attribute(D.Rel + "id") ?? ""];
+            if (part is null || !_book.Package.Has(part)) continue;
+            var doc = Xml.Parse(_book.Package.Read(part));
+            var table = doc.Root!;
+            var ends = ((string?)table.Attribute("ref") ?? "").Split(':');
+            if (!CellRef.TryParse(ends[0], out var first) || !CellRef.TryParse(ends[^1], out var last)) continue;
+            if ((Xml.Int(table.Attribute("headerRowCount")) ?? 1) == 0) continue;
+            if (reference.Row != first.Row || reference.Column < first.Column || reference.Column > last.Column) continue;
+            var columns = table.Element(D.Sheet + "tableColumns")?.Elements(D.Sheet + "tableColumn").ToList();
+            int index = reference.Column - first.Column;
+            if (columns is null || index >= columns.Count || (string?)columns[index].Attribute("name") == name) continue;
+            if (columns.Any(c => string.Equals((string?)c.Attribute("name"), name, StringComparison.OrdinalIgnoreCase))) continue;
+            columns[index].SetAttributeValue("name", name);
+            _book.Package.Write(part, Xml.ToBytes(doc));
         }
     }
 
@@ -881,6 +933,7 @@ public sealed class Sheet
             c.Add(new XElement(D.Sheet + "is", run));
             _book.RequestFullRecalculation();
         }
+        RenameTableColumn(reference, typed);
         _dirty = true;
         _extent = null;
         _book.NoteChanged(this, reference);
